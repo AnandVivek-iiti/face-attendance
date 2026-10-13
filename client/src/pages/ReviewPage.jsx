@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Camera, CheckCheck, Loader2, Lock, RefreshCw, Save, Undo2 } from 'lucide-react';
+import { ArrowLeft, Camera, CheckCheck, Download, Loader2, Lock, RefreshCw, Save, Trash2, Undo2, UserPlus } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import EmptyState from '../components/ui/EmptyState';
@@ -9,6 +9,7 @@ import Spinner from '../components/ui/Spinner';
 import ToggleSwitch from '../components/ui/ToggleSwitch';
 import AddStudentDialog from '../components/AddStudentDialog';
 import ChangeStudentDialog from '../components/ChangeStudentDialog';
+import EnrollFacesDialog from '../components/EnrollFacesDialog';
 import FinalizeDialog from '../components/FinalizeDialog';
 import ImageViewer from '../components/ImageViewer';
 import QualityAlert from '../components/QualityAlert';
@@ -19,7 +20,16 @@ import { useToast } from '../context/ToastContext';
 import { useImageSizes } from '../hooks/useImageSizes';
 import { useReviewState } from '../hooks/useReviewState';
 import { useSession } from '../hooks/useSession';
-import { analyzeSession, finalizeSession, updateRecord } from '../services/attendanceService';
+import {
+  analyzeSession,
+  assignFace,
+  assignFaces,
+  deleteSession,
+  exportAllCsv,
+  exportSessionCsv,
+  finalizeSession,
+  updateRecord,
+} from '../services/attendanceService';
 import { buildReview, overridePayload, qualityAlerts } from '../utils/attendance';
 import { getErrorMessage } from '../utils/errors';
 import { formatDate } from '../utils/format';
@@ -39,6 +49,9 @@ export default function ReviewPage() {
   const [saving, setSaving] = useState(false);
   const [finalizing, setFinalizing] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
 
   const built = useMemo(() => (session ? buildReview(session, review.state) : null), [session, review.state]);
 
@@ -119,6 +132,43 @@ export default function ReviewPage() {
     }
   };
 
+  const downloadCsv = async (kind) => {
+    setExporting(true);
+    try {
+      const response = kind === 'session' ? await exportSessionCsv(sessionId) : await exportAllCsv();
+      const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      const disposition = response.headers?.['content-disposition'] || '';
+      const match = /filename="?([^"]+)"?/.exec(disposition);
+      link.download = match?.[1] || (kind === 'session' ? 'attendance.csv' : 'attendance-all.csv');
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success('CSV downloaded.');
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const removeSession = async () => {
+    const label = `${courseTitle} on ${formatDate(session.date)}`;
+    if (!window.confirm(`Delete attendance for ${label}? Its photos and records will be removed permanently.`)) return;
+    setDeleting(true);
+    try {
+      await deleteSession(sessionId);
+      toast.success('Attendance deleted.');
+      navigate('/attendance/history');
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+      setDeleting(false);
+    }
+  };
+
   const focusFace = (face) => {
     if (!face) return;
     setSelectedFaceKey(face.key);
@@ -146,9 +196,51 @@ export default function ReviewPage() {
     onDismissFace: (face) => review.dismissFace(face.key),
   };
 
-  const confirmChange = (toId) => {
-    review.reassign(dialog.fromRow?.studentId ?? null, toId, dialog.face);
+  // Pointing a face at a student is a server-side change: it stores the face
+  // vector as that student's reference and marks them present.
+  const confirmChange = async (choice) => {
+    const face = dialog?.face;
     setDialog(null);
+    if (!face) return;
+    setSaving(true);
+    try {
+      if (choice.type === 'new') {
+        await assignFace(sessionId, face.faceId, { rollNumber: choice.rollNumber, name: choice.name });
+        toast.success(`${choice.name} enrolled and marked present.`);
+      } else {
+        const row = built.rows.find((item) => item.studentId === choice.studentId);
+        await assignFace(sessionId, face.faceId, { rollNumber: row?.rollNumber ?? choice.studentId });
+        toast.success(`${row?.name ?? choice.studentId} marked present.`);
+      }
+      await reload({ silent: true });
+      review.reset();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // First-attendance enrollment: each face gets an ID, which creates the
+  // student on the server. No reload per face — one refresh when finished.
+  const enrollFace = async (face, values) => {
+    await assignFace(sessionId, face.faceId, values);
+  };
+
+  // "Enroll this page": the whole page goes to the server as one request.
+  const enrollFaces = async (items) => {
+    const payload = await assignFaces(
+      sessionId,
+      items.map(({ face, values }) => ({ faceId: face.faceId, ...values })),
+    );
+    return payload?.results ?? [];
+  };
+
+  const finishEnrolling = async (count) => {
+    setEnrolling(false);
+    await reload({ silent: true });
+    review.reset();
+    if (count > 0) toast.success(`${count} ${count === 1 ? 'student' : 'students'} enrolled and marked present.`);
   };
 
   const confirmAdd = (student) => {
@@ -178,17 +270,27 @@ export default function ReviewPage() {
             <SessionStatusBadge status={session.status} />
           </p>
         </div>
-        {!readOnly && hasAnalysis && !polling && (
+        {!polling && (
           <div className="flex flex-wrap items-center gap-3">
-            <ToggleSwitch checked={manualMode} onChange={setManualMode} label="Manual Attendance Mode" />
-            <Button icon={Undo2} onClick={review.undo} disabled={!review.canUndo || saving || finalizing}>
-              Undo
-            </Button>
-            <Button icon={Save} onClick={saveDraft} loading={saving} disabled={review.dirtyCount === 0 || finalizing}>
-              Save as Draft
-            </Button>
-            <Button variant="primary" icon={CheckCheck} onClick={() => setDialog({ type: 'finalize' })} disabled={saving || finalizing}>
-              Finalize Attendance
+            {!readOnly && hasAnalysis && (
+              <>
+                <ToggleSwitch checked={manualMode} onChange={setManualMode} label="Manual Attendance Mode" />
+                <Button icon={Undo2} onClick={review.undo} disabled={!review.canUndo || saving || finalizing}>
+                  Undo
+                </Button>
+                <Button icon={Save} onClick={saveDraft} loading={saving} disabled={review.dirtyCount === 0 || finalizing}>
+                  Save as Draft
+                </Button>
+                <Button icon={Download} onClick={() => downloadCsv('session')} loading={exporting} disabled={saving || finalizing}>
+                  Export CSV
+                </Button>
+                <Button variant="primary" icon={CheckCheck} onClick={() => setDialog({ type: 'finalize' })} disabled={saving || finalizing}>
+                  Finalize Attendance
+                </Button>
+              </>
+            )}
+            <Button variant="danger" icon={Trash2} onClick={removeSession} loading={deleting} disabled={saving || finalizing || analyzing}>
+              Delete
             </Button>
           </div>
         )}
@@ -274,6 +376,23 @@ export default function ReviewPage() {
     <>
       {header}
 
+      {!readOnly && built.summary.unmatched > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-panel border border-primary bg-primary-soft px-4 py-3">
+          <UserPlus size={18} className="text-primary" aria-hidden="true" />
+          <p className="min-w-52 flex-1 text-sm text-ink">
+            <span className="font-semibold">
+              {built.summary.unmatched} {built.summary.unmatched === 1 ? 'face' : 'faces'} still {built.summary.unmatched === 1 ? 'needs' : 'need'} an ID.
+            </span>{' '}
+            {built.summary.enrolled === 0
+              ? 'First attendance for this course — enrolling here builds the roster.'
+              : 'Give each one a roll number to enroll or link the student.'}
+          </p>
+          <Button variant="primary" icon={UserPlus} onClick={() => setEnrolling(true)}>
+            Enroll faces
+          </Button>
+        </div>
+      )}
+
       {alerts.length > 0 && (
         <div className="mb-4 space-y-3">
           {alerts.map((item) => (
@@ -336,6 +455,16 @@ export default function ReviewPage() {
         size={dialog?.face ? sizes[dialog.face.imageId] : null}
         onConfirm={confirmChange}
         onCancel={() => setDialog(null)}
+      />
+      <EnrollFacesDialog
+        open={enrolling}
+        faces={built.unmatchedFaces}
+        imageById={imageById}
+        sizes={sizes}
+        takenRolls={new Set(built.rows.map((row) => String(row.rollNumber).toLowerCase()))}
+        onEnroll={enrollFace}
+        onEnrollMany={enrollFaces}
+        onClose={finishEnrolling}
       />
       <AddStudentDialog
         open={dialog?.type === 'add'}

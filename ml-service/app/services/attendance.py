@@ -47,7 +47,7 @@ class AttendanceService:
         usable = [i for i, quality in enumerate(qualities) if quality.status != "unusable"]
         image_quality = self._aggregate_image_quality(qualities)
         if not usable:
-            return self._response(image_quality, [], include_embeddings)
+            return self._response(image_quality, [], include_embeddings, qualities)
 
         gallery = build_gallery(students)
         multi = len(images) > 1
@@ -63,7 +63,7 @@ class AttendanceService:
         faces = self._deduplicate(observations)
         logger.info("request=%s images=%d usable=%d faces=%d returned=%d",
                     request_id, len(images), len(usable), len(observations), len(faces))
-        return self._response(image_quality, faces, include_embeddings)
+        return self._response(image_quality, faces, include_embeddings, qualities)
 
     def _analyze_image(self, image: np.ndarray, index: int, multi: bool, gallery, request_id: str,
                        include_embeddings: bool = False) -> list[Observation]:
@@ -150,7 +150,8 @@ class AttendanceService:
         return ImageQuality("good", round(blur, 2), round(brightness, 3), None)
 
     @staticmethod
-    def _response(image_quality: ImageQuality, faces: list[Observation], include_embeddings: bool = False) -> dict:
+    def _response(image_quality: ImageQuality, faces: list[Observation], include_embeddings: bool = False,
+                  qualities: list[ImageQuality] | None = None) -> dict:
         counts = {HIGH: 0, REVIEW: 0, UNKNOWN: 0}
         for face in faces:
             counts[face.decision] += 1
@@ -166,7 +167,7 @@ class AttendanceService:
                 "decision": f.decision,
             }
             if include_embeddings and f.embedding is not None:
-                payload["embedding"] = [float(v) for v in f.embedding]
+                payload["embedding"] = f.embedding.astype("float32").tolist()
             return payload
 
         return {
@@ -176,6 +177,16 @@ class AttendanceService:
                 "brightnessScore": image_quality.brightness_score,
                 "message": image_quality.message,
             },
+            "imageQualities": [
+                {
+                    "index": index,
+                    "status": quality.status,
+                    "blurScore": quality.blur_score,
+                    "brightnessScore": quality.brightness_score,
+                    "message": quality.message,
+                }
+                for index, quality in enumerate(qualities or [])
+            ],
             "faces": [face_payload(f) for f in faces],
             "summary": {
                 "detectedFaces": len(faces),

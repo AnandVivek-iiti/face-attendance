@@ -19,7 +19,7 @@ export default function ProfilePage() {
   return (
     <>
       <PageHeader title="Profile" />
-      <Card className="max-w-xl">
+      <Card scan="once" className="max-w-xl">
         <dl>
           <Item label="Name" value={user.name} />
           <Item label="Email" value={user.email} />

@@ -11,7 +11,13 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get('/', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR), controller.list);
+router.get('/available', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR, ROLES.STUDENT), controller.listAll);
 router.post('/', authorizeRole(ROLES.ADMIN), validate({ body: schemas.createCourse }), controller.create);
 router.get('/:id', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR), controller.getOne);
+router.put('/:id', authorizeRole(ROLES.ADMIN), validate({ body: schemas.updateCourse }), controller.update);
+router.delete('/:id', authorizeRole(ROLES.ADMIN), controller.remove);
+
+// Admin provisions a professor. Their password arrives with their first course.
+router.post('/professors', authorizeRole(ROLES.ADMIN), validate({ body: schemas.createProfessor }), controller.addProfessor);
 
 module.exports = router;

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { isProfileComplete } from '../utils/normalize';
 import {
   BookOpen,
   Camera,
@@ -9,6 +10,7 @@ import {
   Menu,
   ScanFace,
   User,
+  UserPlus,
   Users,
   X,
 } from 'lucide-react';
@@ -20,6 +22,7 @@ const navByRole = {
   [ROLES.PROFESSOR]: [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { to: '/attendance/new', label: 'Take attendance', icon: Camera },
+    { to: '/professor/requests', label: 'Requests', icon: UserPlus },
     { to: '/courses', label: 'Courses', icon: BookOpen },
     { to: '/attendance/history', label: 'Attendance history', icon: History },
     { to: '/students', label: 'Students', icon: Users },
@@ -27,15 +30,15 @@ const navByRole = {
   ],
   [ROLES.ADMIN]: [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { to: '/admin/courses', label: 'Admin — courses', icon: BookOpen },
     { to: '/courses', label: 'Courses', icon: BookOpen },
     { to: '/students', label: 'Students', icon: Users },
     { to: '/attendance/history', label: 'Attendance history', icon: History },
     { to: '/profile', label: 'Profile', icon: User },
   ],
   [ROLES.STUDENT]: [
-    { to: '/dashboard', label: 'My attendance', icon: LayoutDashboard },
-    { to: '/attendance/history', label: 'History', icon: History },
-    { to: '/profile', label: 'Profile', icon: User },
+    { to: '/student/attendance', label: 'My attendance', icon: LayoutDashboard },
+    { to: '/student/profile', label: 'My profile', icon: User },
   ],
 };
 
@@ -100,10 +103,10 @@ function Sidebar({ items, user, onSignOut, onNavigate, pathname }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 px-4 py-4">
-        <span className="flex h-8 w-8 items-center justify-center rounded-ctl bg-gradient-to-br from-primary to-teal-500 text-primary-ink shadow-glass">
+        <span className="flex h-8 w-8 items-center justify-center rounded-ctl bg-gradient-to-br from-primary to-green-600 text-primary-ink shadow-glass">
           <ScanFace size={18} aria-hidden="true" />
         </span>
-        <span className="font-serif text-lg font-bold text-ink">Face Attendance</span>
+        <span className="font-serif text-base font-bold text-ink">Face Attendance</span>
       </div>
       <div className="flex-1 px-3">
         <NavItems items={items} pathname={pathname} onNavigate={onNavigate} />
@@ -137,16 +140,22 @@ export default function AppLayout() {
   const [open, setOpen] = useState(false);
   const items = navByRole[user.role] ?? navByRole[ROLES.STUDENT];
 
+  // Students with no saved profile details cannot skip setup: every route
+  // except the setup page itself bounces them back to it.
+  if (!isProfileComplete(user) && location.pathname !== '/student/profile') {
+    return <Navigate to="/student/profile" replace />;
+  }
+
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="hidden w-56 shrink-0 border-r border-line bg-white/[0.04] backdrop-blur-glass lg:block">
+      <aside className="hidden w-64 shrink-0 border-r border-line bg-white/[0.04] lg:block">
         <div className="sticky top-0 h-screen">
           <Sidebar items={items} user={user} onSignOut={signOut} pathname={location.pathname} />
         </div>
       </aside>
 
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-white/[0.06] px-4 py-3 backdrop-blur-glass lg:hidden">
-        <span className="font-serif text-lg font-bold text-ink">Face Attendance</span>
+      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-white/[0.06] px-4 py-3 lg:hidden">
+        <span className="font-serif text-base font-bold text-ink">Face Attendance</span>
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -160,7 +169,7 @@ export default function AppLayout() {
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div
-            className="absolute inset-0 bg-scrim/75 backdrop-blur-sm animate-fade"
+            className="absolute inset-0 bg-scrim/75 animate-fade"
             onClick={() => setOpen(false)}
             aria-hidden="true"
           />

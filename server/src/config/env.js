@@ -32,6 +32,8 @@ module.exports = Object.freeze({
   jwtSecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
   mlServiceUrl: required('ML_SERVICE_URL').replace(/\/+$/, ''),
+  // Optional: only needed when the ML service has API_KEY set. Empty means no header.
+  mlApiKey: process.env.ML_API_KEY || '',
   mlTimeoutMs: positiveInt('ML_TIMEOUT_MS', 60000),
   clientOrigins: required('CLIENT_URL')
     .split(',')

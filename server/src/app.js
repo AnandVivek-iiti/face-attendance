@@ -8,8 +8,10 @@ const { notFound, errorHandler } = require('./middleware/errorHandler');
 const createApp = () => {
   const app = express();
   app.disable('x-powered-by');
-  app.use(helmet());
-  app.use(cors({ origin: env.clientOrigins }));
+  // Allow the dev client to render session photos served from this origin.
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+  // The client sends cookies, so the browser needs credentials allowed here.
+  app.use(cors({ origin: env.clientOrigins, credentials: true }));
   app.use(express.json({ limit: '1mb' }));
   app.use('/api', routes);
   app.use(notFound);

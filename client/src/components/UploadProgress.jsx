@@ -1,4 +1,5 @@
-import { AlertTriangle, CheckCircle2, Circle, Loader2, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import AsciiSpinner from './ui/AsciiSpinner';
 import Button from './ui/Button';
 import ProgressBar from './ui/ProgressBar';
 
@@ -19,30 +20,33 @@ export default function UploadProgress({ stage, failedStage, uploadProgress, err
           const failed = stage === 'error' && step.id === failedStage;
           const done = stage === 'done' || index < currentIndex;
           const active = !failed && !done && step.id === current;
-          let Icon = Circle;
           let tone = 'text-muted';
-          if (done) {
-            Icon = CheckCircle2;
-            tone = 'text-ok';
-          } else if (failed) {
-            Icon = AlertTriangle;
-            tone = 'text-bad';
-          } else if (active) {
-            Icon = Loader2;
-            tone = 'text-primary';
-          }
+          if (done) tone = 'text-ok';
+          else if (failed) tone = 'text-bad';
+          else if (active) tone = 'text-primary';
           return (
             <li key={step.id}>
               <div className="flex items-center gap-2 text-sm">
-                <Icon size={16} className={`${tone} ${active ? 'animate-spin' : ''}`} aria-hidden="true" />
+                <span className={`shrink-0 whitespace-pre ${tone}`} aria-hidden="true">
+                  {done && '[ ok ]'}
+                  {failed && '[fail]'}
+                  {active && (
+                    <>
+                      {'[ '}
+                      <AsciiSpinner />
+                      {'  ]'}
+                    </>
+                  )}
+                  {!done && !failed && !active && '[    ]'}
+                </span>
                 <span className={active || failed ? 'font-semibold text-ink' : 'text-muted'}>{step.label}</span>
-                {done && <span className="text-xs text-ok">Done</span>}
-                {failed && <span className="text-xs font-semibold text-bad">Failed</span>}
+                {done && <span className="sr-only">Done</span>}
+                {failed && <span className="sr-only">Failed</span>}
               </div>
               {active && step.id === 'uploading' && (
                 <div className="ml-6 mt-2 flex items-center gap-3">
                   <ProgressBar value={uploadProgress} label="Upload progress" />
-                  <span className="w-10 text-right text-xs tabular-nums text-muted">
+                  <span className="w-10 text-right text-xs tabular-nums text-primary">
                     {Math.round(uploadProgress * 100)}%
                   </span>
                 </div>

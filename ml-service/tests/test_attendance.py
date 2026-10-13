@@ -31,7 +31,7 @@ def test_equal_decisions_prefer_higher_evidence():
 def test_summary_is_consistent_and_schema_stable():
     quality = ImageQuality("good", 184.5, 0.78, None)
     body = AttendanceService._response(quality, [obs("face_001", 0, "A", 0.9, "high_confidence")])
-    assert set(body) == {"imageQuality", "faces", "summary"}
+    assert set(body) == {"imageQuality", "imageQualities", "faces", "summary"}
     assert set(body["faces"][0]) == {"faceId", "bbox", "detectionConfidence", "faceQuality", "studentId", "similarity", "decision"}
     summary = body["summary"]
     assert summary["detectedFaces"] == summary["highConfidence"] + summary["needsReview"] + summary["unknown"]

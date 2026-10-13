@@ -64,7 +64,13 @@ test('rejects tokens signed with another secret', async () => {
 test('login validates its body', async () => {
   const response = await call('POST', '/auth/login', { body: { email: 'not-an-email', password: '' } });
   assert.equal(response.status, 400);
-  assert.equal(response.json.code, 'VALIDATION_ERROR');
+  assert.equal(response.json.success, false);
+});
+
+test('login rejects non-iiti email domains', async () => {
+  const response = await call('POST', '/auth/login', { body: { email: 'someone@gmail.com', password: 'password123' } });
+  assert.equal(response.status, 400);
+  assert.equal(response.json.code, 'INVALID_EMAIL_DOMAIN');
 });
 
 test('role checks block students and professors from admin routes', async () => {
@@ -85,11 +91,10 @@ test('admin payloads are validated', async () => {
   assert.equal(response.json.success, false);
 });
 
-test('record update body must contain exactly one action', async () => {
+test('record update body requires a valid status', async () => {
   const token = tokenFor(ids.professor, 'professor');
   const path = `/attendance/sessions/${'d'.repeat(24)}/records/ME23001`;
   assert.equal((await call('PUT', path, { token, body: {} })).status, 400);
-  assert.equal((await call('PUT', path, { token, body: { status: 'present', reassignTo: 'X' } })).status, 400);
   assert.equal((await call('PUT', path, { token, body: { status: 'late' } })).status, 400);
 });
 

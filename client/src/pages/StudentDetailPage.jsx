@@ -29,6 +29,8 @@ export default function StudentDetailPage() {
   const toast = useToast();
   const navigate = useNavigate();
   const isAdmin = user.role === ROLES.ADMIN;
+  // Professors can correct name / roll number for students in their own courses.
+  const canEdit = isAdmin || user.role === ROLES.PROFESSOR;
   const { data: student, loading, error, reload } = useAsync(() => getStudent(id), [id]);
 
   const [values, setValues] = useState({ name: '', rollNumber: '', email: '' });
@@ -54,7 +56,7 @@ export default function StudentDetailPage() {
       await updateStudent(id, {
         name: values.name.trim(),
         rollNumber: values.rollNumber.trim(),
-        email: values.email.trim(),
+        ...(isAdmin && { email: values.email.trim() }),
       });
       toast.success('Student updated.');
       reload();
@@ -130,11 +132,16 @@ export default function StudentDetailPage() {
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Card title="Details">
+          {student.autoEnrolled && (
+            <p className="mb-4 rounded-ctl border border-primary/30 bg-primary-soft px-3 py-2 text-sm text-primary" role="status">
+              This student was enrolled automatically with a generated ID. Set their real name and roll number below.
+            </p>
+          )}
           <form onSubmit={save} className="space-y-4">
-            <TextInput label="Full name" value={values.name} onChange={change('name')} disabled={!isAdmin} required />
-            <TextInput label="Roll number" value={values.rollNumber} onChange={change('rollNumber')} error={idError} disabled={!isAdmin} required />
+            <TextInput label="Full name" value={values.name} onChange={change('name')} disabled={!canEdit} required />
+            <TextInput label="Roll number" value={values.rollNumber} onChange={change('rollNumber')} error={idError} disabled={!canEdit} required />
             <TextInput label="Email" type="email" value={values.email} onChange={change('email')} disabled={!isAdmin} />
-            {isAdmin && (
+            {canEdit && (
               <Button type="submit" variant="primary" icon={Save} loading={saving} disabled={!values.name.trim() || !values.rollNumber.trim() || Boolean(idError)}>
                 Save changes
               </Button>

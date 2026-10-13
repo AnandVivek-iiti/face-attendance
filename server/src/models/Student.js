@@ -11,9 +11,17 @@ const studentSchema = new mongoose.Schema(
     semester: { type: Number, required: true, min: 1, max: 12 },
     section: { type: String, required: true, set: upperTrim },
     registeredImage: { type: String, default: null },
-    faceEmbedding: { type: [Number], select: false, default: undefined },
+    // Reference face vectors accumulated over time. Several vectors per student
+    // are far more robust than one classroom-quality capture.
+    faceEmbeddings: { type: [[Number]], select: false, default: [] },
+    // The insightface pack that produced faceEmbeddings. Sent back on every
+    // analysis so the ML service can reject a stale model with a 409.
+    embeddingModel: { type: String, default: null },
     hasFaceEmbedding: { type: Boolean, default: false },
-    active: { type: Boolean, default: true }
+    active: { type: Boolean, default: true },
+    // True while the ID/name were generated automatically (bulk face enrollment).
+    // Cleared the first time a professor edits the student's name or roll number.
+    autoEnrolled: { type: Boolean, default: false }
   },
   { timestamps: true }
 );
@@ -22,7 +30,7 @@ studentSchema.index({ semester: 1, section: 1, active: 1 });
 
 studentSchema.set('toJSON', {
   transform: (doc, ret) => {
-    delete ret.faceEmbedding;
+    delete ret.faceEmbeddings;
     delete ret.__v;
     return ret;
   }

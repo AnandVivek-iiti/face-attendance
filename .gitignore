@@ -1,0 +1,19 @@
+# Root-level gitignore for face-attendance monorepo
+
+# Node / Client
+/node_modules
+/dist
+
+# ML Service
+/__pycache__/
+*.pyc
+.env
+/.venv/
+evaluation-output/
+
+# Storage (face crop images)
+storage/face-crops/*
+
+# Common
+!.gitignore
+!.gitkeep

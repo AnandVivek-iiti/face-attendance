@@ -39,10 +39,10 @@ export function ToastProvider({ children }) {
             <div
               key={toast.id}
               role={isError ? 'alert' : 'status'}
-              className={`pointer-events-auto flex items-start gap-2 rounded-ctl border px-3 py-2 text-sm shadow-glass backdrop-blur-md animate-toast ${
+              className={`pointer-events-auto flex items-start gap-2 rounded-ctl border px-3 py-2 text-sm shadow-glass animate-toast ${
                 isError
                   ? 'border-bad-line bg-[rgba(60,14,12,0.9)] text-bad'
-                  : 'border-ok-line bg-[rgba(6,46,33,0.92)] text-ok'
+                  : 'border-ok-line bg-[rgba(1,59,0,0.94)] text-ok'
               }`}
             >
               <Icon size={16} className="mt-0.5 shrink-0" aria-hidden="true" />

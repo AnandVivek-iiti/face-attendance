@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import * as authService from '../services/authService';
+import { getProfile } from '../services/studentProfileService';
 import { AUTH_EXPIRED_EVENT } from '../services/http';
 import { clearAuth, loadAuth, saveAuth } from '../utils/storage';
+import { normalizeUser } from '../utils/normalize';
 
 const AuthContext = createContext(null);
 
@@ -20,6 +22,24 @@ export function AuthProvider({ children }) {
     setAuth(null);
   }, []);
 
+  // Re-read the student's canonical profile state from the server (used right
+  // after profile setup saves, so the gate opens without forcing a re-login).
+  const refreshUser = useCallback(async () => {
+    const current = loadAuth();
+    if (!current?.user || current.user.role !== 'student') return current?.user ?? null;
+    const data = await getProfile();
+    const nextUser = normalizeUser({
+      ...current.user,
+      profile: data.profile ?? current.user.profile,
+      studentId: data.studentId ?? data.linkedStudent?._id ?? current.user.studentId,
+      profileComplete: data.profileComplete,
+    });
+    const next = { ...current, user: nextUser };
+    saveAuth(next);
+    setAuth(next);
+    return nextUser;
+  }, []);
+
   useEffect(() => {
     const handleExpired = () => setAuth(null);
     window.addEventListener(AUTH_EXPIRED_EVENT, handleExpired);
@@ -27,8 +47,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user: auth?.user ?? null, isAuthenticated: Boolean(auth?.user), signIn, signOut }),
-    [auth, signIn, signOut],
+    () => ({ user: auth?.user ?? null, isAuthenticated: Boolean(auth?.user), signIn, signOut, refreshUser }),
+    [auth, signIn, signOut, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -97,7 +97,7 @@ export default function ImageUploader({
           type="button"
           disabled={disabled || files.length >= maxFiles}
           onClick={() => input.current?.click()}
-          className="ripple mt-3 inline-flex items-center gap-1.5 rounded-ctl border border-line bg-white/10 px-3 py-1.5 text-sm font-semibold text-ink transition duration-150 hover:-translate-y-0.5 hover:bg-white/[0.16] active:translate-y-0 disabled:opacity-50"
+          className="ripple mt-3 inline-flex items-center gap-1.5 rounded-ctl border border-line bg-white/10 px-3 py-1.5 text-sm font-semibold text-ink transition duration-150 hover:bg-white/[0.16] disabled:opacity-50"
         >
           <ImagePlus size={16} aria-hidden="true" />
           {files.length ? `Add more ${noun}s` : `Choose ${noun}s`}
@@ -128,7 +128,7 @@ export default function ImageUploader({
               key={`${item.file.name}-${item.file.lastModified}-${index}`}
               className="glass lift overflow-hidden rounded-panel border border-line"
             >
-              <div className="relative aspect-[4/3] bg-scrim/50">
+              <div className={`relative aspect-[4/3] bg-scrim/50 ${disabled ? 'scan-loop' : ''}`}>
                 <img src={item.url} alt={`${noun} ${index + 1} preview`} className="h-full w-full object-cover" />
                 <button
                   type="button"

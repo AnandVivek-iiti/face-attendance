@@ -1,5 +1,5 @@
 const { z } = require('zod');
-const { SESSION_STATUS, LIMITS } = require('../config/constants');
+const { SESSION_STATUS, LIMITS, IIIT_EMAIL_DOMAIN, ENROLLMENT_REQUEST_STATUS } = require('../config/constants');
 
 const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid id');
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD');
@@ -9,10 +9,16 @@ const semester = z.coerce.number().int().min(1).max(12);
 const page = z.coerce.number().int().min(1).default(1);
 const limit = z.coerce.number().int().min(1).max(LIMITS.MAX_PAGE_SIZE).default(20);
 const booleanString = z.enum(['true', 'false']).transform((value) => value === 'true');
+const year = z.coerce.number().int().min(1).max(6);
+
+// Every account is keyed on an institutional address; the service enforces the
+// domain so the rejection carries a specific error code rather than a generic
+// validation failure.
+const institutionalEmail = z.string().trim().toLowerCase().email();
 
 const login = z.object({
-  email: z.string().trim().toLowerCase().email(),
-  password: z.string().min(1).max(200)
+  email: institutionalEmail,
+  password: z.string().min(8).max(200, 'Password must be at least 8 characters')
 });
 
 const studentFields = {
@@ -46,20 +52,73 @@ const createCourse = z.object({
   courseName: text(150),
   professorId: objectId,
   semester,
-  section
+  section,
+  department: text(20).nullable().optional(),
+  room: text(20).nullable().optional()
+});
+
+const updateCourse = createCourse.partial().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
+
+const createDepartment = z.object({ code: text(20), name: text(100) });
+const updateDepartment = createDepartment.partial().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
+
+// Admin provisions a professor. The password is auto-derived from the course
+// they are assigned to, so it is not accepted here.
+const createProfessor = z.object({
+  name: text(120),
+  email: institutionalEmail
+});
+
+// Student builds their profile: picks year/sem/dept/course, types their roll
+// number (their attendance id) and uploads a face photo.
+const studentProfile = z.object({
+  rollNumber: text(32),
+  name: text(120).optional(),
+  // Semester comes from the chosen course, so the client need not send it.
+  year: year.optional(),
+  semester: semester.optional(),
+  department: text(100),
+  courseId: objectId
+});
+
+const reviewEnrollmentRequest = z.object({
+  note: z.string().trim().max(500).optional()
 });
 
 const createSession = z.object({ courseId: objectId, date: dateString.optional() });
 
+// The professor flips a student between present/absent by hand. "ignored" marks
+// a face they deliberately discarded rather than a student they marked absent.
 const updateRecord = z
   .object({
     status: z.enum(['present', 'absent']).optional(),
-    reassignTo: text(64).optional(),
     note: z.string().trim().max(500).optional()
   })
-  .refine((value) => (value.status !== undefined) !== (value.reassignTo !== undefined), {
-    message: 'Provide exactly one of status or reassignTo'
-  });
+  .refine((value) => value.status !== undefined, { message: 'status is required' });
+
+// Assigning a detected face to a roll number. When the roll number is new the
+// student is created on the spot, which is how the roster is built from photos.
+const assignFace = z.object({
+  // Optional: with no roll number a new student is created with a generated ID.
+  rollNumber: text(32).optional(),
+  name: text(120).optional(),
+  department: text(100).optional()
+});
+
+// Enroll a whole page of detected faces in one request.
+const assignFaces = z.object({
+  assignments: z
+    .array(
+      z.object({
+        faceId: text(64),
+        rollNumber: text(32).optional(),
+        name: text(120).optional(),
+        department: text(100).optional()
+      })
+    )
+    .min(1)
+    .max(100)
+});
 
 const history = z.object({
   page,
@@ -77,7 +136,15 @@ module.exports = {
   updateStudent,
   listStudents,
   createCourse,
+  updateCourse,
+  createDepartment,
+  updateDepartment,
+  createProfessor,
+  studentProfile,
+  reviewEnrollmentRequest,
   createSession,
   updateRecord,
+  assignFace,
+  assignFaces,
   history
 };

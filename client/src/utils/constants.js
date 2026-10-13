@@ -9,17 +9,25 @@ export const DECISION = {
 
 export const IMAGE_QUALITY = { GOOD: 'good', POOR: 'poor', UNUSABLE: 'unusable' };
 
+// These must match the server's SESSION_STATUS exactly. The server calls the
+// post-analysis state "review" and the in-flight state "processing".
 export const SESSION_STATUS = {
   DRAFT: 'draft',
-  ANALYZING: 'analyzing',
-  ANALYZED: 'analyzed',
+  PROCESSING: 'processing',
+  REVIEW: 'review',
   FAILED: 'failed',
   FINALIZED: 'finalized',
 };
 
-export const POLLING_STATUSES = ['analyzing', 'processing', 'queued'];
+export const POLLING_STATUSES = ['processing'];
 
 export const SOURCE = { AI: 'ai', REVIEWED: 'ai_reviewed', MANUAL: 'manual' };
+
+export const ENROLLMENT_STATUS = {
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+};
 
 export const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;

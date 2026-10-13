@@ -9,7 +9,8 @@ export default function AnnotatedImage({ image, size, faces, selectedKey, showLa
     );
   }
   return (
-    <div className="relative w-full overflow-hidden rounded-ctl border border-line bg-scrim/50">
+    <div key={image.url} className="scan-once relative w-full overflow-hidden rounded-ctl border border-line bg-scrim/50">
+      <div className="frame-corners pointer-events-none absolute inset-1 z-[6]" aria-hidden="true" />
       <img
         src={image.url}
         alt={`Classroom photograph ${image.index + 1}`}

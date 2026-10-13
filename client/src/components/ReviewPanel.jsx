@@ -106,7 +106,7 @@ export default function ReviewPanel({
                 type="button"
                 aria-pressed={filter === item.id}
                 onClick={() => setFilter(item.id)}
-                className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold transition duration-150 hover:-translate-y-px active:translate-y-0 ${
+                className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors duration-150 ${
                   filter === item.id
                     ? 'border-primary bg-primary text-primary-ink shadow-glass'
                     : 'border-line bg-white/10 text-ink hover:bg-white/[0.16]'

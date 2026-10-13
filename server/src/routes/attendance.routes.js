@@ -17,6 +17,19 @@ router.post('/sessions', professor, validate({ body: schemas.createSession }), c
 router.post('/sessions/:id/images', professor, sessionUploadGuard, upload.attendanceImages, controller.addImages);
 router.post('/sessions/:id/analyze', professor, controller.analyze);
 router.get('/sessions/:id', authorizeRole(ROLES.PROFESSOR, ROLES.ADMIN), controller.getSession);
+// Registered before the :faceId route so "assign" is never read as a face id.
+router.post(
+  '/sessions/:id/faces/assign',
+  professor,
+  validate({ body: schemas.assignFaces }),
+  controller.assignFaces
+);
+router.post(
+  '/sessions/:id/faces/:faceId/assign',
+  professor,
+  validate({ body: schemas.assignFace }),
+  controller.assignFace
+);
 router.put(
   '/sessions/:id/records/:studentId',
   professor,
@@ -24,7 +37,10 @@ router.put(
   controller.updateRecord
 );
 router.post('/sessions/:id/finalize', professor, controller.finalize);
+router.delete('/sessions/:id', professor, controller.deleteSession);
+router.get('/sessions/:id/export', professor, controller.exportSession);
 
 router.get('/history', validate({ query: schemas.history }), controller.history);
+router.get('/export', professor, controller.exportAll);
 
 module.exports = router;

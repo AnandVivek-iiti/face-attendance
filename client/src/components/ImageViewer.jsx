@@ -53,7 +53,7 @@ export default function ImageViewer({
           {legend.map((decision) => {
             const { label } = decisionConfig(decision);
             const border = decision === DECISION.HIGH ? 'solid' : decision === DECISION.REVIEW ? 'dashed' : 'dotted';
-            const color = decision === DECISION.HIGH ? '#3ddc97' : decision === DECISION.REVIEW ? '#fbbf24' : '#ff8f85';
+            const color = decision === DECISION.HIGH ? '#3dff3d' : decision === DECISION.REVIEW ? '#ffb454' : '#ff7b72';
             return (
               <li key={decision} className="flex items-center gap-1.5">
                 <span className="inline-block h-3 w-4" style={{ border: `2px ${border} ${color}` }} aria-hidden="true" />

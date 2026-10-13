@@ -24,7 +24,9 @@ export default function SessionSummary({ summary }) {
       <p className="border-t border-line px-4 py-2 text-sm text-muted">
         {summary.facesFound} {summary.facesFound === 1 ? 'face' : 'faces'} found in the photographs
         {summary.unmatched > 0 &&
-          `, ${summary.unmatched} not matched to an enrolled student`}
+          (summary.enrolled === 0
+            ? ` — first attendance: give each face an ID below to enroll the class`
+            : `, ${summary.unmatched} not matched to an enrolled student`)}
         .
       </p>
     </section>

@@ -1,8 +1,18 @@
 import http from './http';
-import { asList, normalizeStudent, unwrap } from '../utils/normalize';
+import { asList, normalizeStudent, unwrap, unwrapWithMeta } from '../utils/normalize';
 
+// The server pages results (max 100). Fetch every page so a class of 56+ is never cut off.
 export async function getStudents() {
-  return asList(unwrap(await http.get('/api/students')), 'students').map(normalizeStudent);
+  const all = [];
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const { data, pagination } = unwrapWithMeta(await http.get('/api/students', { params: { page, limit: 100 } }));
+    all.push(...asList(data, 'students'));
+    totalPages = pagination?.totalPages ?? 1;
+    page += 1;
+  } while (page <= totalPages && page <= 20);
+  return all.map(normalizeStudent);
 }
 
 export async function getStudent(id) {

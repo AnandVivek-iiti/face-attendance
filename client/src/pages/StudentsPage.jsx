@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Plus, Users } from 'lucide-react';
+import { AlertTriangle, Plus, Sparkles, Users } from 'lucide-react';
 import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
@@ -78,7 +78,7 @@ export default function StudentsPage() {
   const header = (
     <PageHeader
       title="Students"
-      description={isAdmin ? 'Add students and enroll their faces.' : 'Students in your courses.'}
+      description={isAdmin ? 'Add students and enroll their faces.' : 'Students in your courses. Open a student to set their real name and roll number.'}
       actions={
         isAdmin && (
           <Button variant="primary" icon={Plus} onClick={() => setCreating(true)}>
@@ -134,7 +134,12 @@ export default function StudentsPage() {
               <tbody className="stagger">
                 {rows.map((student) => (
                   <tr key={student.id} className="border-b border-line transition-colors duration-150 last:border-b-0 hover:bg-white/[0.06]">
-                    <td className="px-4 py-3 tabular-nums">{student.rollNumber}</td>
+                    <td className="px-4 py-3 tabular-nums">
+                      {student.rollNumber}
+                      {student.autoEnrolled && (
+                        <Badge tone="info" icon={Sparkles} className="ml-2">Auto ID</Badge>
+                      )}
+                    </td>
                     <td className="px-4 py-3 font-semibold">
                       <Link to={`/students/${student.id}`} className="text-primary hover:underline">
                         {student.name}

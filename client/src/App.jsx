@@ -10,6 +10,10 @@ import HistoryPage from './pages/HistoryPage';
 import StudentsPage from './pages/StudentsPage';
 import StudentDetailPage from './pages/StudentDetailPage';
 import ProfilePage from './pages/ProfilePage';
+import StudentProfilePage from './pages/StudentProfilePage';
+import StudentAttendancePage from './pages/StudentAttendancePage';
+import ProfessorRequestsPage from './pages/ProfessorRequestsPage';
+import AdminCoursesPage from './pages/AdminCoursesPage';
 import NotFoundPage from './pages/NotFoundPage';
 import { ROLES } from './utils/constants';
 
@@ -25,14 +29,22 @@ export default function App() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/attendance/history" element={<HistoryPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route element={<ProtectedRoute roles={[ROLES.STUDENT]} />}>
+            <Route path="/student/profile" element={<StudentProfilePage />} />
+            <Route path="/student/attendance" element={<StudentAttendancePage />} />
+          </Route>
+          <Route element={<ProtectedRoute roles={[ROLES.PROFESSOR]} />}>
+            <Route path="/professor/requests" element={<ProfessorRequestsPage />} />
+            <Route path="/attendance/new" element={<NewAttendancePage />} />
+          </Route>
+          <Route element={<ProtectedRoute roles={[ROLES.ADMIN]} />}>
+            <Route path="/admin/courses" element={<AdminCoursesPage />} />
+          </Route>
           <Route element={<ProtectedRoute roles={staff} />}>
             <Route path="/courses" element={<CoursesPage />} />
             <Route path="/students" element={<StudentsPage />} />
             <Route path="/students/:id" element={<StudentDetailPage />} />
             <Route path="/attendance/:sessionId/review" element={<ReviewPage />} />
-          </Route>
-          <Route element={<ProtectedRoute roles={[ROLES.PROFESSOR]} />}>
-            <Route path="/attendance/new" element={<NewAttendancePage />} />
           </Route>
         </Route>
       </Route>

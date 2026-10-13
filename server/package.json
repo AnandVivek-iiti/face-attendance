@@ -8,7 +8,9 @@
     "start": "node src/app.js",
     "dev": "node --watch src/app.js",
     "test": "node --test",
-    "user:create": "node ../scripts/create-user.js"
+    "user:create": "node ../scripts/create-user.js",
+    "seed:professor": "node ../scripts/seed-professor.js",
+    "smoke:assign": "node scripts/smoke-assign.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

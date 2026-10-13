@@ -21,9 +21,11 @@ const attendanceImages = build(LIMITS.IMAGES_PER_REQUEST).array('images', LIMITS
 
 const faceImage = build(1).single('image');
 
+const profileImage = build(1).single('image');
+
 const singleToArray = (req, res, next) => {
   req.files = req.file ? [req.file] : [];
   next();
 };
 
-module.exports = { attendanceImages, faceImage: [faceImage, singleToArray] };
+module.exports = { attendanceImages, faceImage: [faceImage, singleToArray], profileImage: [profileImage, singleToArray] };

@@ -1,11 +1,16 @@
 const Student = require('../models/Student');
 const Course = require('../models/Course');
+const EnrollmentRequest = require('../models/EnrollmentRequest');
+const AttendanceSession = require('../models/AttendanceSession');
+const AttendanceRecord = require('../models/AttendanceRecord');
+const User = require('../models/User');
 const AppError = require('../utils/AppError');
 const mlClient = require('./mlClient');
 const storageService = require('./storageService');
+const auditService = require('./auditService');
 const { isObjectId } = require('../utils/objectId');
 const { skipFor, toPagination } = require('../utils/pagination');
-const { ROLES } = require('../config/constants');
+const { ROLES, ENROLLMENT_REQUEST_STATUS, AUDIT_ACTIONS, RECORD_STATUS } = require('../config/constants');
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -68,9 +73,23 @@ const getOne = async (user, ref) => {
 
 const create = (data) => Student.create(data);
 
-const update = async (ref, data) => {
+// Professors may correct who a student is (name, roll number, department) for
+// the cohorts they teach. Everything else stays admin-only.
+const PROFESSOR_EDITABLE = ['name', 'rollNumber', 'department'];
+
+const update = async (user, ref, data) => {
   const student = await getByRef(ref);
-  student.set(data);
+  let changes = data;
+  if (user.role !== ROLES.ADMIN) {
+    await assertCanView(user, student);
+    changes = Object.fromEntries(Object.entries(data).filter(([key]) => PROFESSOR_EDITABLE.includes(key)));
+    if (Object.keys(changes).length === 0) {
+      throw new AppError('You can only edit name, roll number and department', 403, { code: 'FORBIDDEN' });
+    }
+  }
+  student.set(changes);
+  // Once a person has set a real name or roll number it is no longer a generated placeholder.
+  if ('name' in changes || 'rollNumber' in changes) student.autoEnrolled = false;
   await student.save();
   return student;
 };
@@ -94,7 +113,7 @@ const registerFace = async (ref, files) => {
   try {
     await Student.updateOne(
       { _id: student._id },
-      { $set: { registeredImage: stored.relativePath, faceEmbedding: [], hasFaceEmbedding: false } }
+      { $set: { registeredImage: stored.relativePath, faceEmbeddings: [], embeddingModel: null, hasFaceEmbedding: false } }
     );
     updated = await Student.findById(student._id);
   } catch (error) {
@@ -117,7 +136,7 @@ const generateEmbedding = async (ref) => {
 
   await Student.updateOne(
     { _id: student._id },
-    { $set: { faceEmbedding: result.embedding, hasFaceEmbedding: true } }
+    { $set: { faceEmbeddings: [result.embedding], embeddingModel: result.embeddingModel || null, hasFaceEmbedding: true } }
   );
   const updated = await Student.findById(student._id);
   return { student: updated, embeddingSize: result.embedding.length, faceQuality: result.faceQuality ?? null };
@@ -125,9 +144,245 @@ const generateEmbedding = async (ref) => {
 
 const listEnrolledForCourse = (course) =>
   Student.find({ semester: course.semester, section: course.section, active: true })
-    .select('+faceEmbedding')
+    .select('+faceEmbeddings')
     .sort({ rollNumber: 1 })
     .lean();
+
+/**
+ * Is this roll number already on the roster for this course? Enrollment lives on
+ * the Student record's semester/section, so a match means the same roll number
+ * in the same cohort the course is taught to.
+ */
+const findInCourse = async (rollNumber, course) =>
+  Student.findOne({
+    rollNumber,
+    semester: course.semester,
+    section: course.section,
+    active: true
+  });
+
+const assertCourseExists = async (courseId) => {
+  const course = await Course.findById(courseId);
+  if (!course) throw new AppError('Course not found', 404, { code: 'COURSE_NOT_FOUND' });
+  return course;
+};
+
+/**
+ * Profile setup: the student picks year/sem/dept/course, types their roll number
+ * (their attendance id) and uploads a face photo.
+ *
+ * If that roll number is already on the course roster the account is simply
+ * linked and they see their past attendance. Otherwise the photo and details
+ * become an enrollment request the professor must approve — no student can add
+ * themselves to a course directly.
+ */
+const buildProfile = async (user, files, body) => {
+  const course = await assertCourseExists(body.courseId);
+
+  const existing = await findInCourse(body.rollNumber, course);
+  if (existing) {
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          studentId: existing._id,
+          profile: {
+            rollNumber: body.rollNumber,
+            name: body.name || user.name || existing.name,
+            year: body.year ?? null,
+            semester: course.semester,
+            department: body.department || existing.department
+          }
+        }
+      }
+    );
+    return {
+      enrolled: true,
+      request: null,
+      student: existing.toJSON ? existing.toJSON() : existing,
+      course: course.toJSON ? course.toJSON() : course
+    };
+  }
+
+  if (!files || files.length !== 1) {
+    throw new AppError('Exactly one face photo is required in the "image" field', 400, { code: 'INVALID_UPLOAD' });
+  }
+
+  const duplicate = await EnrollmentRequest.findOne({
+    userId: user._id,
+    courseId: course._id,
+    status: ENROLLMENT_REQUEST_STATUS.PENDING
+  });
+  if (duplicate) {
+    throw new AppError('You already have a pending request for this course', 409, { code: 'REQUEST_PENDING' });
+  }
+
+  const [stored] = await storageService.commitUploads(files, 'profile-images', `${user._id}-`);
+  let request;
+  try {
+    request = await EnrollmentRequest.create({
+      userId: user._id,
+      courseId: course._id,
+      rollNumber: body.rollNumber,
+      name: body.name || user.name,
+      year: body.year,
+      semester: course.semester,
+      department: body.department,
+      imagePath: stored.relativePath,
+      status: ENROLLMENT_REQUEST_STATUS.PENDING
+    });
+  } catch (error) {
+    await storageService.removeFiles([stored.absolutePath]);
+    throw error;
+  }
+
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $set: {
+        profile: {
+          rollNumber: body.rollNumber,
+          name: body.name || user.name,
+          year: body.year ?? null,
+          semester: course.semester,
+          department: body.department
+        }
+      }
+    }
+  );
+
+  await auditService.record(
+    auditService.userEntry(user, {
+      action: AUDIT_ACTIONS.ENROLLMENT_REQUESTED,
+      after: { courseId: course._id, rollNumber: body.rollNumber }
+    })
+  );
+
+  return {
+    enrolled: false,
+    request: request.toJSON ? request.toJSON() : request,
+    student: null,
+    course: course.toJSON ? course.toJSON() : course
+  };
+};
+
+/**
+ * Current student's own profile state. `profileComplete` is true once details
+ * have been saved (buildProfile always writes `profile.rollNumber`), whether
+ * that meant direct enrollment or a pending professor approval.
+ */
+const getProfile = async (user) => {
+  const fresh = await User.findById(user._id).lean();
+  if (!fresh) throw new AppError('Account not found', 404, { code: 'USER_NOT_FOUND' });
+  const profile = fresh.profile || {};
+  const profileComplete = Boolean(profile.rollNumber);
+  const linkedStudent =
+    fresh.studentId && isObjectId(fresh.studentId)
+      ? await Student.findById(fresh.studentId).lean()
+      : null;
+  const pendingRequests = await EnrollmentRequest.find({
+    userId: fresh._id,
+    status: ENROLLMENT_REQUEST_STATUS.PENDING
+  })
+    .populate('courseId', 'courseCode courseName')
+    .lean();
+  return {
+    profile,
+    studentId: fresh.studentId || null,
+    profileComplete,
+    linkedStudent,
+    pendingRequests
+  };
+};
+
+/**
+ * Past attendance for the linked student, grouped by course. Falls back to the
+ * profile roll number so a student who has been approved but whose link was not
+ * yet written still sees their history.
+ */
+const getAttendance = async (user) => {
+  const linked = user.studentId ? await Student.findById(user.studentId) : null;
+  const rollNumber = linked?.rollNumber || user.profile?.rollNumber;
+
+  const records = await AttendanceRecord.find({ studentId: linked ? linked._id : null })
+    .populate('sessionId', 'date status courseId')
+    .lean();
+
+  const courseIds = [...new Set(records.map((r) => String(r.sessionId?.courseId)))].filter(Boolean);
+  const courses = await Course.find({ _id: { $in: courseIds } }).lean();
+  const courseById = new Map(courses.map((c) => [String(c._id), c]));
+
+  const sessions = await AttendanceSession.find({
+    courseId: { $in: courseIds },
+    status: 'finalized'
+  }).select('courseId date status').lean();
+
+  const byCourse = new Map();
+  for (const record of records) {
+    const session = record.sessionId;
+    if (!session) continue;
+    const key = String(session.courseId);
+    if (!byCourse.has(key)) {
+      const course = courseById.get(key);
+      byCourse.set(key, {
+        courseId: key,
+        courseCode: course?.courseCode || '—',
+        courseName: course?.courseName || '—',
+        present: 0,
+        absent: 0,
+        total: 0,
+        sessions: []
+      });
+    }
+    const entry = byCourse.get(key);
+    entry.total += 1;
+    if (record.status === RECORD_STATUS.PRESENT) entry.present += 1;
+    else entry.absent += 1;
+    entry.sessions.push({
+      sessionId: session._id,
+      date: session.date,
+      status: record.status
+    });
+  }
+
+  const total = records.length;
+  const present = records.filter((r) => r.status === RECORD_STATUS.PRESENT).length;
+
+  return {
+    rollNumber,
+    studentId: linked?._id || null,
+    summary: {
+      total,
+      present,
+      absent: total - present,
+      percentage: total ? Math.round((present / total) * 10000) / 100 : 0
+    },
+    courses: [...byCourse.values()].map((c) => ({
+      ...c,
+      percentage: c.total ? Math.round((c.present / c.total) * 10000) / 100 : 0
+    }))
+  };
+};
+
+const MAX_REFERENCE_EMBEDDINGS = 5;
+
+// Append a reference vector to a student. Classrooms are lit poorly and shot
+// from awkward angles, so several vectors beat one perfect one. Done as an
+// atomic $push with $slice: faceEmbeddings is select:false, so a read-modify-write
+// here would silently drop every vector already stored.
+const appendEmbedding = async (student, embedding, model) => {
+  await Student.updateOne(
+    { _id: student._id },
+    {
+      $push: { faceEmbeddings: { $each: [embedding], $slice: -MAX_REFERENCE_EMBEDDINGS } },
+      $set: { hasFaceEmbedding: true, ...(model ? { embeddingModel: model } : {}) }
+    }
+  );
+  student.faceEmbeddings = [...(student.faceEmbeddings || []), embedding].slice(-MAX_REFERENCE_EMBEDDINGS);
+  student.hasFaceEmbedding = true;
+  if (model) student.embeddingModel = model;
+  return student;
+};
 
 module.exports = {
   getByRef,
@@ -138,5 +393,11 @@ module.exports = {
   deactivate,
   registerFace,
   generateEmbedding,
-  listEnrolledForCourse
+  listEnrolledForCourse,
+  appendEmbedding,
+  buildProfile,
+  getProfile,
+  getAttendance,
+  findInCourse,
+  MAX_REFERENCE_EMBEDDINGS
 };

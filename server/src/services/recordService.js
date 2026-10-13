@@ -76,58 +76,6 @@ const changeStatus = async (session, record, student, user, body) => {
   return { record: await presentRecord(record), relatedRecord: null, summary };
 };
 
-const reassign = async (session, record, student, user, body) => {
-  const target = await studentService.getByRef(body.reassignTo);
-  if (target._id.equals(student._id)) {
-    throw new AppError('Cannot reassign a record to the same student', 400, { code: 'INVALID_REASSIGNMENT' });
-  }
-  if (!record.evidence || record.evidence.length === 0) {
-    throw new AppError('This record has no AI-detected face to reassign', 422, { code: 'NOT_REASSIGNABLE' });
-  }
-  const targetRecord = await AttendanceRecord.findOne({ sessionId: session._id, studentId: target._id });
-  if (!targetRecord) {
-    throw new AppError('Target student is not part of this attendance session', 404, { code: 'RECORD_NOT_FOUND' });
-  }
-
-  const beforeSource = snapshot(record);
-  const beforeTarget = snapshot(targetRecord);
-
-  targetRecord.evidence = [...targetRecord.evidence.map((item) => item.toObject()), ...record.evidence.map((item) => item.toObject())];
-  if (targetRecord.confidence == null) {
-    targetRecord.confidence = record.confidence;
-    targetRecord.faceQuality = record.faceQuality;
-  }
-  targetRecord.aiStudentId = targetRecord.aiStudentId || record.aiStudentId;
-  targetRecord.status = RECORD_STATUS.PRESENT;
-  markReviewed(targetRecord, RECORD_SOURCE.AI_REVIEWED);
-
-  record.evidence = [];
-  record.confidence = null;
-  record.faceQuality = null;
-  record.status = RECORD_STATUS.ABSENT;
-  markReviewed(record, RECORD_SOURCE.AI_REVIEWED);
-
-  await record.save();
-  await targetRecord.save();
-
-  await auditService.record(
-    auditService.userEntry(user, {
-      sessionId: session._id,
-      studentId: student._id,
-      action: AUDIT_ACTIONS.IDENTITY_CHANGED,
-      before: { from: { studentId: student.studentId, ...beforeSource }, to: { studentId: target.studentId, ...beforeTarget } },
-      after: { from: { studentId: student.studentId, ...snapshot(record) }, to: { studentId: target.studentId, ...snapshot(targetRecord) } },
-      note: body.note || null
-    })
-  );
-  const summary = await refreshSessionCounts(session._id);
-  return {
-    record: await presentRecord(record),
-    relatedRecord: await presentRecord(targetRecord),
-    summary
-  };
-};
-
 const updateRecord = async (sessionId, studentRef, user, body) => {
   const session = await sessionService.getOwnedSession(sessionId, user);
   assertEditable(session);
@@ -136,7 +84,6 @@ const updateRecord = async (sessionId, studentRef, user, body) => {
   if (!record) {
     throw new AppError('Student is not part of this attendance session', 404, { code: 'RECORD_NOT_FOUND' });
   }
-  if (body.reassignTo !== undefined) return reassign(session, record, student, user, body);
   return changeStatus(session, record, student, user, body);
 };
 

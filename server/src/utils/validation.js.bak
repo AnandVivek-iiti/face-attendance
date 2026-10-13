@@ -1,0 +1,149 @@
+const { z } = require('zod');
+const { SESSION_STATUS, LIMITS, IIIT_EMAIL_DOMAIN, ENROLLMENT_REQUEST_STATUS } = require('../config/constants');
+
+const objectId = z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid id');
+const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD');
+const text = (max = 120) => z.string().trim().min(1).max(max);
+const section = text(10).transform((value) => value.toUpperCase());
+const semester = z.coerce.number().int().min(1).max(12);
+const page = z.coerce.number().int().min(1).default(1);
+const limit = z.coerce.number().int().min(1).max(LIMITS.MAX_PAGE_SIZE).default(20);
+const booleanString = z.enum(['true', 'false']).transform((value) => value === 'true');
+const year = z.coerce.number().int().min(1).max(6);
+
+// Every account is keyed on an institutional address; the service enforces the
+// domain so the rejection carries a specific error code rather than a generic
+// validation failure.
+const institutionalEmail = z.string().trim().toLowerCase().email();
+
+const login = z.object({
+  email: institutionalEmail,
+  password: z.string().min(8).max(200, 'Password must be at least 8 characters')
+});
+
+const studentFields = {
+  studentId: text(32),
+  rollNumber: text(32),
+  name: text(120),
+  department: text(100),
+  semester,
+  section
+};
+
+const createStudent = z.object({ ...studentFields, active: z.boolean().optional() });
+
+const updateStudent = z
+  .object({ ...studentFields, active: z.boolean() })
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'At least one field is required');
+
+const listStudents = z.object({
+  page,
+  limit,
+  semester: semester.optional(),
+  section: section.optional(),
+  department: text(100).optional(),
+  active: booleanString.optional(),
+  q: text(100).optional()
+});
+
+const createCourse = z.object({
+  courseCode: text(32),
+  courseName: text(150),
+  professorId: objectId,
+  semester,
+  section,
+  department: text(20).nullable().optional(),
+  room: text(20).nullable().optional()
+});
+
+const updateCourse = createCourse.partial().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
+
+const createDepartment = z.object({ code: text(20), name: text(100) });
+const updateDepartment = createDepartment.partial().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
+
+// Admin provisions a professor. The password is auto-derived from the course
+// they are assigned to, so it is not accepted here.
+const createProfessor = z.object({
+  name: text(120),
+  email: institutionalEmail
+});
+
+// Student builds their profile: picks year/sem/dept/course, types their roll
+// number (their attendance id) and uploads a face photo.
+const studentProfile = z.object({
+  rollNumber: text(32),
+  name: text(120).optional(),
+  // Semester comes from the chosen course, so the client need not send it.
+  year: year.optional(),
+  semester: semester.optional(),
+  department: text(100),
+  courseId: objectId
+});
+
+const reviewEnrollmentRequest = z.object({
+  note: z.string().trim().max(500).optional()
+});
+
+const createSession = z.object({ courseId: objectId, date: dateString.optional() });
+
+// The professor flips a student between present/absent by hand. "ignored" marks
+// a face they deliberately discarded rather than a student they marked absent.
+const updateRecord = z
+  .object({
+    status: z.enum(['present', 'absent']).optional(),
+    note: z.string().trim().max(500).optional()
+  })
+  .refine((value) => value.status !== undefined, { message: 'status is required' });
+
+// Assigning a detected face to a roll number. When the roll number is new the
+// student is created on the spot, which is how the roster is built from photos.
+const assignFace = z.object({
+  rollNumber: text(32),
+  name: text(120).optional(),
+  department: text(100).optional()
+});
+
+// Enroll a whole page of detected faces in one request.
+const assignFaces = z.object({
+  assignments: z
+    .array(
+      z.object({
+        faceId: text(64),
+        rollNumber: text(32),
+        name: text(120).optional(),
+        department: text(100).optional()
+      })
+    )
+    .min(1)
+    .max(100)
+});
+
+const history = z.object({
+  page,
+  limit,
+  courseId: objectId.optional(),
+  studentId: text(64).optional(),
+  from: dateString.optional(),
+  to: dateString.optional(),
+  status: z.enum(Object.values(SESSION_STATUS)).optional()
+});
+
+module.exports = {
+  login,
+  createStudent,
+  updateStudent,
+  listStudents,
+  createCourse,
+  updateCourse,
+  createDepartment,
+  updateDepartment,
+  createProfessor,
+  studentProfile,
+  reviewEnrollmentRequest,
+  createSession,
+  updateRecord,
+  assignFace,
+  assignFaces,
+  history
+};

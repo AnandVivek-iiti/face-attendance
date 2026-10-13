@@ -1,0 +1,272 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Check } from 'lucide-react';
+import Badge from './ui/Badge';
+import Button from './ui/Button';
+import Modal from './ui/Modal';
+import { TextInput } from './ui/Field';
+import FaceCrop from './FaceCrop';
+import { getErrorMessage } from '../utils/errors';
+
+const PAGE_SIZE = 10;
+
+/**
+ * First-attendance enrollment, 10 faces per page. Each row gets a roll number
+ * + name; "Enroll this page" saves every filled row in order. Each enrollment
+ * hits the server's assign-face endpoint, which creates the student on the
+ * spot (roster = course semester/section), stores the face vector as their
+ * reference, and marks them present.
+ */
+export default function EnrollFacesDialog({ open, faces, imageById, sizes, takenRolls, onEnroll, onEnrollMany, onClose }) {
+  const [inputs, setInputs] = useState({});
+  const [marks, setMarks] = useState({});
+  const [busyKey, setBusyKey] = useState(null);
+  const [busyPage, setBusyPage] = useState(false);
+  const [page, setPage] = useState(0);
+  const [enrolledCount, setEnrolledCount] = useState(0);
+  // face.key -> true once that face's photo is fully loaded and visible.
+  const [ready, setReady] = useState({});
+  const markReady = useCallback(
+    (key, value) => setReady((current) => (Boolean(current[key]) === value ? current : { ...current, [key]: value })),
+    [],
+  );
+
+  useEffect(() => {
+    if (open) {
+      setInputs({});
+      setMarks({});
+      setBusyKey(null);
+      setBusyPage(false);
+      setPage(0);
+      setEnrolledCount(0);
+    }
+  }, [open ]);
+
+  const remaining = useMemo(
+    () => (faces ?? []).filter((face) => !marks[face.key]),
+    [faces, marks],
+  );
+  const pageCount = Math.max(1, Math.ceil(remaining.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageFaces = remaining.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const skippedCount = useMemo(
+    () => Object.values(marks).filter((mark) => mark.state === 'skipped').length,
+    [marks],
+  );
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  const setInput = (key, field, value) =>
+    setInputs((current) => ({ ...current, [key]: { roll: '', name: '', ...current[key], [field]: value } }));
+
+  // Roll number and name are optional. Left empty, the server creates the student
+  // with a database-generated ID that the professor can change later.
+  const valuesFor = (face) => {
+    const input = inputs[face.key] ?? { roll: '', name: '' };
+    const roll = input.roll.trim();
+    const fullName = input.name.trim();
+    return { ...(roll && { rollNumber: roll }), ...(fullName && { name: fullName }) };
+  };
+
+  const enrollOne = async (face) => {
+    setBusyKey(face.key);
+    setMarks((current) => {
+      const next = { ...current };
+      delete next[face.key];
+      return next;
+    });
+    try {
+      await onEnroll(face, valuesFor(face));
+      setMarks((current) => ({ ...current, [face.key]: { state: 'done' } }));
+      setEnrolledCount((count) => count + 1);
+      return true;
+    } catch (err) {
+      setMarks((current) => ({ ...current, [face.key]: { state: 'error', message: getErrorMessage(err) } }));
+      return false;
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const enrollPage = async () => {
+    setBusyPage(true);
+    try {
+      const items = pageFaces
+        .filter((face) => !marks[face.key] && ready[face.key])
+        .map((face) => ({ face, values: valuesFor(face) }));
+      if (items.length === 0) return;
+
+      // Preferred path: the whole page in ONE request (much faster, and no
+      // partial overwrites). Falls back to one-by-one if no bulk handler.
+      if (!onEnrollMany) {
+        for (const { face } of items) await enrollOne(face);
+        return;
+      }
+      try {
+        const results = await onEnrollMany(items);
+        const byFace = new Map(results.map((result) => [result.faceId, result]));
+        let done = 0;
+        setMarks((current) => {
+          const next = { ...current };
+          for (const { face } of items) {
+            const result = byFace.get(face.faceId);
+            if (result?.ok) next[face.key] = { state: 'done' };
+            else next[face.key] = { state: 'error', message: result?.message || 'Could not enroll this face.' };
+          }
+          return next;
+        });
+        for (const { face } of items) if (byFace.get(face.faceId)?.ok) done += 1;
+        setEnrolledCount((count) => count + done);
+      } catch (err) {
+        setMarks((current) => {
+          const next = { ...current };
+          for (const { face } of items) next[face.key] = { state: 'error', message: getErrorMessage(err) };
+          return next;
+        });
+      }
+    } finally {
+      setBusyPage(false);
+    }
+  };
+
+  const skip = (face) =>
+    setMarks((current) => ({ ...current, [face.key]: { state: 'skipped' } }));
+
+  // Every visible, not-yet-handled face on this page can be enrolled.
+  const fillable = pageFaces.filter((face) => ready[face.key] && !marks[face.key]).length;
+
+  const finish = () => onClose(enrolledCount);
+
+  return (
+    <Modal
+      open={open}
+      title={remaining.length ? `Enroll faces — ${remaining.length} left` : 'Enrollment finished'}
+      onClose={finish}
+      width="max-w-4xl"
+      footer={
+        remaining.length ? (
+          <>
+            <Button onClick={finish}>Done ({enrolledCount} enrolled)</Button>
+            <Button variant="primary" onClick={enrollPage} loading={busyPage} disabled={busyKey !== null || fillable === 0}>
+              Enroll this page{fillable > 0 && ` (${fillable})`}
+            </Button>
+          </>
+        ) : (
+          <Button variant="primary" onClick={finish}>
+            Done
+          </Button>
+        )
+      }
+    >
+      {remaining.length === 0 ? (
+        <p className="text-sm text-ink" role="status">
+          {enrolledCount === 0 && skippedCount === 0
+            ? 'No faces were enrolled.'
+            : `${enrolledCount} ${enrolledCount === 1 ? 'student' : 'students'} enrolled and marked present${skippedCount > 0 ? `, ${skippedCount} skipped` : ''}.`}
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-sm text-muted" role="status">
+            {enrolledCount} enrolled · {skippedCount} skipped · {remaining.length} left. Roll number and name are optional: leave them empty and a unique ID is generated (you can edit it later under Students). Skip any face that is not a student.
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <caption className="sr-only">Faces to enroll</caption>
+              <thead>
+                <tr className="surface border-b border-line text-xs font-semibold text-muted">
+                  <th scope="col" className="px-2 py-2">Face</th>
+                  <th scope="col" className="px-2 py-2">Roll number</th>
+                  <th scope="col" className="px-2 py-2">Full name</th>
+                  <th scope="col" className="px-2 py-2">Status</th>
+                  <th scope="col" className="px-2 py-2"><span className="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageFaces.map((face) => {
+                  const input = inputs[face.key] ?? { roll: '', name: '' };
+                  const mark = marks[face.key];
+                  const roll = input.roll.trim();
+                  const duplicate = roll && takenRolls?.has(roll.toLowerCase());
+                  return (
+                    <tr key={face.key} className="border-b border-line last:border-b-0">
+                      <td className="px-2 py-2">
+                        <div className="flex items-center gap-2">
+                          <FaceCrop
+                            image={imageById[face.imageId]}
+                            size={sizes[face.imageId]}
+                            face={face}
+                            width={48}
+                            onReady={(value) => markReady(face.key, value)}
+                          />
+                          <span className="text-xs text-muted">Photo {(face.imageIndex ?? 0) + 1}</span>
+                        </div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <TextInput
+                          label="Roll number"
+                          hideLabel
+                          value={input.roll}
+                          onChange={(event) => setInput(face.key, 'roll', event.target.value)}
+                          placeholder="Auto-generated ID"
+                          hint={duplicate ? 'Already on roster — will link.' : undefined}
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <TextInput
+                          label="Full name"
+                          hideLabel
+                          value={input.name}
+                          onChange={(event) => setInput(face.key, 'name', event.target.value)}
+                          placeholder="Optional name"
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        {mark?.state === 'error' ? (
+                          <span className="text-xs text-bad">{mark.message}</span>
+                        ) : ready[face.key] ? (
+                          <Badge tone="warn">Pending</Badge>
+                        ) : (
+                          <Badge tone="neutral">Loading face…</Badge>
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="flex gap-1.5">
+                          <Button
+                            size="sm"
+                            icon={Check}
+                            onClick={() => enrollOne(face)}
+                            loading={busyKey === face.key}
+                            disabled={busyKey !== null || busyPage || !ready[face.key]}
+                          >
+                            Enroll
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => skip(face)} disabled={busyKey !== null || busyPage}>
+                            Skip
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {pageCount > 1 && (
+            <div className="flex items-center justify-between gap-2">
+              <Button size="sm" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={safePage === 0}>
+                Previous 10
+              </Button>
+              <span className="text-sm tabular-nums text-muted" role="status">
+                Page {safePage + 1} of {pageCount}
+              </span>
+              <Button size="sm" onClick={() => setPage((value) => Math.min(pageCount - 1, value + 1))} disabled={safePage >= pageCount - 1}>
+                Next 10
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}

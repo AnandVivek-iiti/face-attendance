@@ -12,7 +12,6 @@ const studentService = require('./studentService');
 const {
   SESSION_STATUS,
   RECORD_STATUS,
-  RECORD_SOURCE,
   AUDIT_ACTIONS,
   LIMITS
 } = require('../config/constants');
@@ -41,43 +40,47 @@ const claim = async (session, user) => {
   return claimed;
 };
 
-const qualityOf = (response) => ({
-  status: response.imageQuality.status,
-  blurScore: response.imageQuality.blurScore ?? null,
-  brightnessScore: response.imageQuality.brightnessScore ?? null,
-  message: response.imageQuality.message ?? null
+const qualityOf = (value) => ({
+  status: value.status,
+  blurScore: value.blurScore ?? null,
+  brightnessScore: value.brightnessScore ?? null,
+  message: value.message ?? null
 });
-
-const analyzeImages = async (session, gallery) => {
-  const pending = session.uploadedImages.filter((image) => !image.quality || image.quality.status !== UNUSABLE);
-  if (pending.length === 0) {
-    throw new AppError('All uploaded images were unusable. Upload a clearer classroom image.', 422, {
-      code: 'IMAGE_UNUSABLE',
-      details: { images: session.uploadedImages.map(describeImage) }
-    });
-  }
-
-  const results = [];
-  for (const image of pending) {
-    const buffer = await storageService.readFile(image.path);
-    const response = await mlClient.analyzeImage({
-      buffer,
-      filename: image.filename,
-      mimeType: image.mimeType,
-      gallery
-    });
-    image.quality = qualityOf(response);
-    results.push({ image, response });
-  }
-  await session.save();
-  return results;
-};
 
 const describeImage = (image) => ({
   imageId: image._id,
   originalName: image.originalName,
   message: (image.quality && image.quality.message) || DEFAULT_QUALITY_MESSAGE
 });
+
+// Faces arrive flat, with the image index encoded in faceId ("img2_face_003")
+// when more than one image was sent. Group them back per image so we can store
+// quality and evidence together.
+const groupFacesByImage = (faces, images) => {
+  const byImage = images.map(() => []);
+  for (const face of faces) {
+    const match = /^img(\d+)_/.exec(face.faceId);
+    const index = match ? Number(match[1]) - 1 : 0;
+    if (index < 0 || index >= images.length) continue;
+    byImage[index].push(face);
+  }
+  return byImage;
+};
+
+const buildGallery = (enrolled) => {
+  const withEmbeddings = enrolled.filter(
+    (student) => Array.isArray(student.faceEmbeddings) && student.faceEmbeddings.length > 0
+  );
+  const gallery = withEmbeddings.map((student) => ({
+    studentId: student.studentId,
+    embeddings: student.faceEmbeddings
+  }));
+  const embeddingModel = withEmbeddings.find((student) => student.embeddingModel)?.embeddingModel || null;
+  const studentsWithoutEmbedding = enrolled
+    .filter((student) => !(Array.isArray(student.faceEmbeddings) && student.faceEmbeddings.length))
+    .map((student) => student.studentId);
+  return { gallery, embeddingModel, studentsWithoutEmbedding };
+};
 
 const persistRecords = async (sessionId, outcome) => {
   const reviewed = await AttendanceRecord.find({ sessionId, reviewedByProfessor: true }).select('studentId').lean();
@@ -91,7 +94,7 @@ const persistRecords = async (sessionId, outcome) => {
         update: {
           $set: {
             status: record.status,
-            source: RECORD_SOURCE.AI,
+            source: record.source,
             decision: record.decision,
             confidence: record.confidence,
             faceQuality: record.faceQuality,
@@ -106,6 +109,8 @@ const persistRecords = async (sessionId, outcome) => {
     }));
   if (operations.length) await AttendanceRecord.bulkWrite(operations);
 
+  // Roster can shrink between sessions (student deactivated). Drop records that
+  // no longer belong so counts and the CSV stay consistent.
   await AttendanceRecord.deleteMany({
     sessionId,
     studentId: { $nin: outcome.records.map((record) => record.student) },
@@ -122,44 +127,80 @@ const auditActionFor = (status) => {
 
 const runAnalysis = async (session, user) => {
   const course = await courseService.getById(session.courseId);
+  // The roster is the students already enrolled in this course's semester/section.
+  // On a course's first session this is empty and every face comes back unknown.
   const enrolled = await studentService.listEnrolledForCourse(course);
-  if (enrolled.length === 0) {
-    throw new AppError('No active students are enrolled in this course', 409, { code: 'NO_STUDENTS' });
-  }
-  const withEmbedding = enrolled.filter((student) => student.faceEmbedding && student.faceEmbedding.length);
-  if (withEmbedding.length === 0) {
-    throw new AppError('No enrolled student has a face embedding yet', 409, { code: 'NO_EMBEDDINGS' });
-  }
-  const gallery = withEmbedding.map((student) => ({ studentId: student.studentId, embedding: student.faceEmbedding }));
-  const studentsWithoutEmbedding = enrolled
-    .filter((student) => !(student.faceEmbedding && student.faceEmbedding.length))
-    .map((student) => student.studentId);
+  const { gallery, embeddingModel, studentsWithoutEmbedding } = buildGallery(enrolled);
 
-  const results = await analyzeImages(session, gallery);
-  const usable = results.filter((result) => result.response.imageQuality.status !== UNUSABLE);
-  const unusable = results.filter((result) => result.response.imageQuality.status === UNUSABLE);
+  const images = session.uploadedImages.map((image) => ({ image, document: image }));
+  await Promise.all(
+    images.map(async (entry) => {
+      entry.buffer = await storageService.readFile(entry.image.path);
+    })
+  );
 
+  const response = await mlClient.analyzeClassroom({
+    images: images.map((entry) => ({
+      buffer: entry.buffer,
+      filename: entry.image.filename,
+      mimeType: entry.image.mimeType
+    })),
+    gallery,
+    embeddingModel,
+    includeEmbeddings: true,
+    // A first session has no roster yet; still run detection so the professor
+    // can build the list by assigning each detected face.
+    allowEmptyStudents: true
+  });
+
+  const perImageQuality = response.imageQualities || [];
+  const facesByImage = groupFacesByImage(response.faces, images);
+
+  images.forEach((entry, index) => {
+    const reported = perImageQuality.find((item) => item.index === index);
+    entry.image.quality = qualityOf(reported || response.imageQuality);
+  });
+
+  const usable = images.filter((entry) => entry.image.quality.status !== UNUSABLE);
+  const unusable = images.filter((entry) => entry.image.quality.status === UNUSABLE);
   if (usable.length === 0) {
-    throw new AppError(
-      unusable[0].response.imageQuality.message || DEFAULT_QUALITY_MESSAGE,
-      422,
-      { code: 'IMAGE_UNUSABLE', details: { images: unusable.map((result) => describeImage(result.image)) } }
-    );
+    throw new AppError(unusable[0].image.quality.message || DEFAULT_QUALITY_MESSAGE, 422, {
+      code: 'IMAGE_UNUSABLE',
+      details: { images: unusable.map((entry) => describeImage(entry.image)) }
+    });
   }
 
   const outcome = reconciliationService.reconcile({
     students: enrolled,
-    imageResults: usable.map((result) => ({ imageId: result.image._id, response: result.response }))
+    imageResults: usable.map((entry) => ({
+      imageId: entry.image._id,
+      response: { faces: facesByImage[images.indexOf(entry)] }
+    }))
   });
+
   const reviewedIds = await persistRecords(session._id, outcome);
   const counts = await recordService.tally(session._id);
 
+  // Keep the embeddings the ML returned so assigning a face later can promote
+  // it to a reference vector without re-running recognition.
+  const allFaces = usable.flatMap((entry) =>
+    facesByImage[images.indexOf(entry)].map((face) => ({
+      faceId: face.faceId,
+      imageId: entry.image._id,
+      bbox: face.bbox,
+      detectionConfidence: face.detectionConfidence ?? null,
+      faceQuality: face.faceQuality ?? null,
+      studentId: face.studentId ?? null,
+      similarity: face.similarity ?? null,
+      decision: face.decision,
+      embedding: face.embedding ?? null
+    }))
+  );
+
   const warnings = [
-    ...session.uploadedImages
-      .filter((image) => image.quality && image.quality.status === UNUSABLE)
-      .map((image) => ({ type: 'image_unusable', ...describeImage(image) })),
+    ...unusable.map((entry) => ({ type: 'image_unusable', ...describeImage(entry.image) })),
     ...(studentsWithoutEmbedding.length
-      ? [{ type: 'missing_embeddings', message: 'Some enrolled students have no face embedding', studentIds: studentsWithoutEmbedding }]
+      ? [{ type: 'missing_embeddings', message: 'Some enrolled students have no face reference yet', studentIds: studentsWithoutEmbedding }]
       : [])
   ];
 
@@ -170,12 +211,14 @@ const runAnalysis = async (session, user) => {
     failure: { code: null, message: null, at: null },
     analysis: {
       analyzedAt: new Date(),
-      imageResults: usable.map((result) => ({
-        imageId: result.image._id,
-        imageQuality: qualityOf(result.response),
-        summary: result.response.summary || null,
-        faceCount: result.response.faces.length
+      embeddingModel: embeddingModel || null,
+      imageResults: usable.map((entry) => ({
+        imageId: entry.image._id,
+        imageQuality: entry.image.quality,
+        summary: null,
+        faceCount: facesByImage[images.indexOf(entry)].length
       })),
+      faces: allFaces,
       unknownFaces: outcome.unknownFaces,
       unassignedFaces: outcome.unassignedFaces,
       studentsWithoutEmbedding,

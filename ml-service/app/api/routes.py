@@ -35,12 +35,16 @@ def read_image(upload: UploadFile, settings: Settings):
     return decode_image(data, settings.max_image_pixels)
 
 
-def parse_students(raw: str, settings: Settings, dim: int) -> list[EnrolledStudent]:
+def parse_students(raw: str, settings: Settings, dim: int, allow_empty: bool = False) -> list[EnrolledStudent]:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
         raise AppError("INVALID_STUDENTS", "students must be a valid JSON array", 422)
-    if not isinstance(payload, list) or not payload:
+    if not isinstance(payload, list):
+        raise AppError("INVALID_STUDENTS", "students must be a JSON array", 422)
+    # An empty gallery is legitimate on a course's first session: the service
+    # still detects faces and returns embeddings so the roster can be built.
+    if not payload and not allow_empty:
         raise AppError("INVALID_STUDENTS", "students must be a non-empty array", 422)
     if len(payload) > settings.max_students_per_request:
         raise AppError("TOO_MANY_STUDENTS", "Too many students in one request", 413)
@@ -75,6 +79,7 @@ def analyze_classroom(
     students: str = Form(...),
     embeddingModel: str | None = Form(default=None),
     includeEmbeddings: bool = Form(default=False),
+    allowEmptyStudents: bool = Form(default=False),
     settings: Settings = Depends(settings_dep),
 ):
     registry = request.app.state.registry
@@ -83,7 +88,7 @@ def analyze_classroom(
                        f"Stored embeddings were produced by {embeddingModel}; service runs {registry.model_name}", 409)
     if not images or len(images) > settings.max_images_per_request:
         raise AppError("INVALID_IMAGE_COUNT", f"Provide between 1 and {settings.max_images_per_request} images", 422)
-    enrolled = parse_students(students, settings, registry.recognizer.embedding_dim)
+    enrolled = parse_students(students, settings, registry.recognizer.embedding_dim, allow_empty=allowEmptyStudents)
     decoded = [read_image(upload, settings) for upload in images]
     return request.app.state.attendance.analyze(
         decoded, enrolled, uuid.uuid4().hex[:12], include_embeddings=includeEmbeddings

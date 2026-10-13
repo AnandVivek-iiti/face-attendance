@@ -11,6 +11,7 @@ const root = env.storageRoot;
 const dirs = Object.freeze({
   attendanceImages: path.join(root, 'attendance-images'),
   registeredFaces: path.join(root, 'registered-faces'),
+  profileImages: path.join(root, 'profile-images'),
   temporary: path.join(root, 'temporary')
 });
 

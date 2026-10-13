@@ -16,7 +16,7 @@ const getOne = asyncHandler(async (req, res) =>
 );
 
 const update = asyncHandler(async (req, res) =>
-  success(res, await studentService.update(req.params.id, req.body))
+  success(res, await studentService.update(req.user, req.params.id, req.body))
 );
 
 const remove = asyncHandler(async (req, res) =>
@@ -31,4 +31,16 @@ const generateEmbedding = asyncHandler(async (req, res) =>
   success(res, await studentService.generateEmbedding(req.params.id))
 );
 
-module.exports = { list, create, getOne, update, remove, registerFace, generateEmbedding };
+const profile = asyncHandler(async (req, res) =>
+  success(res, await studentService.buildProfile(req.user, req.files, req.body), { status: 201 })
+);
+
+const attendance = asyncHandler(async (req, res) =>
+  success(res, await studentService.getAttendance(req.user))
+);
+
+const myProfile = asyncHandler(async (req, res) =>
+  success(res, await studentService.getProfile(req.user))
+);
+
+module.exports = { list, create, getOne, update, remove, registerFace, generateEmbedding, profile, attendance, myProfile };

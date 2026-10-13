@@ -1,10 +1,10 @@
-import { Loader2 } from 'lucide-react';
+import AsciiSpinner from './AsciiSpinner';
 
 const variants = {
   primary:
     'bg-primary text-primary-ink border-primary hover:bg-primary-dark shadow-glass',
   secondary:
-    'bg-white/10 text-ink border-line hover:bg-white/[0.16] hover:border-white/25 backdrop-blur-sm',
+    'bg-white/10 text-ink border-line hover:bg-white/[0.16] hover:border-white/25',
   danger: 'bg-bad-dark text-white border-bad-dark hover:brightness-110',
   ghost: 'bg-transparent text-primary border-transparent hover:bg-primary-soft',
 };
@@ -31,11 +31,11 @@ export default function Button({
     <Tag
       {...(isButton ? { type: rest.type || 'button', disabled: disabled || loading } : {})}
       aria-busy={loading || undefined}
-      className={`ripple inline-flex items-center justify-center rounded-ctl border font-semibold transition duration-200 ease-out hover:-translate-y-0.5 active:translate-y-0 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 ${variants[variant]} ${sizes[size]} ${className}`}
+      className={`inline-flex items-center justify-center rounded-ctl border font-semibold transition-colors duration-150 ease-out hover:brightness-105 active:brightness-95 disabled:cursor-not-allowed disabled:opacity-50 ${variants[variant]} ${sizes[size]} ${className}`}
       {...rest}
     >
       {loading ? (
-        <Loader2 size={size === 'sm' ? 12 : 16} className="animate-spin" aria-hidden="true" />
+        <AsciiSpinner />
       ) : (
         Icon && <Icon size={size === 'sm' ? 12 : 16} aria-hidden="true" />
       )}

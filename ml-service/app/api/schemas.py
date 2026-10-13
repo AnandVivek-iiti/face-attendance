@@ -8,6 +8,10 @@ class ImageQualityOut(BaseModel):
     message: str | None = None
 
 
+class PerImageQualityOut(ImageQualityOut):
+    index: int
+
+
 class FaceOut(BaseModel):
     faceId: str
     bbox: list[int]
@@ -28,6 +32,7 @@ class SummaryOut(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     imageQuality: ImageQualityOut
+    imageQualities: list[PerImageQualityOut] = []
     faces: list[FaceOut]
     summary: SummaryOut
 

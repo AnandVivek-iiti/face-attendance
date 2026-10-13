@@ -92,7 +92,7 @@ export default function NewAttendancePage() {
       />
 
       <form onSubmit={submit} className="max-w-4xl space-y-5">
-        <Card>
+        <Card scan="once">
           <div className="grid gap-4 sm:grid-cols-2">
             <Select
               label="Course"

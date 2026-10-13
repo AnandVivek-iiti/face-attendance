@@ -1,15 +1,28 @@
-import { DECISION, SOURCE } from './constants';
+import { DECISION } from './constants';
 import { toIsoDate } from './format';
+import { loadAuth } from './storage';
 
 const ASSET_BASE = (import.meta.env.VITE_ASSET_BASE_URL || '').replace(/\/$/, '');
 
 export function unwrap(response) {
   const body = response?.data;
   if (body && typeof body === 'object' && !Array.isArray(body) && 'data' in body) {
-    const keys = Object.keys(body).filter((key) => key !== 'success' && key !== 'message');
+    // The server pairs `data` with `pagination` on list endpoints. Only treat the
+    // payload as wrapped when `data` is the sole meaningful key.
+    const keys = Object.keys(body).filter(
+      (key) => key !== 'success' && key !== 'message' && key !== 'pagination',
+    );
     if (keys.length === 1) return body.data;
   }
   return body;
+}
+
+export function unwrapWithMeta(response) {
+  const body = response?.data;
+  if (body && typeof body === 'object' && 'data' in body) {
+    return { data: body.data, pagination: body.pagination ?? null };
+  }
+  return { data: body, pagination: null };
 }
 
 export function asList(payload, ...keys) {
@@ -23,8 +36,18 @@ export function asList(payload, ...keys) {
 
 export function assetUrl(url) {
   if (!url) return '';
-  if (/^(https?:|blob:|data:)/i.test(url)) return url;
-  return `${ASSET_BASE}${url.startsWith('/') ? '' : '/'}${url}`;
+  if (/^(blob:|data:)/i.test(url)) return url;
+  const absolute = /^(https?:)/i.test(url)
+    ? url
+    : `${ASSET_BASE}${url.startsWith('/') ? '' : '/'}${url}`;
+  // File URLs are served behind auth (/api/files requires professor/admin).
+  // <img> and Image() send no Authorization header, so the JWT travels as a
+  // query param the files route explicitly accepts.
+  if (absolute.includes('/api/files/')) {
+    const token = loadAuth()?.token;
+    if (token) return `${absolute}${absolute.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+  }
+  return absolute;
 }
 
 function idOf(object) {
@@ -32,14 +55,22 @@ function idOf(object) {
 }
 
 export function normalizeUser(raw = {}) {
+  const profile = raw.profile ?? null;
   return {
     id: idOf(raw),
     name: raw.name ?? raw.fullName ?? '',
     email: raw.email ?? '',
     role: String(raw.role ?? '').toLowerCase(),
     studentId: raw.studentId ?? raw.rollNumber ?? null,
-    department: raw.department ?? '',
+    department: raw.department ?? profile?.department ?? '',
+    profile,
+    profileComplete: raw.profileComplete ?? Boolean(profile?.rollNumber),
   };
+}
+
+export function isProfileComplete(user) {
+  if (!user || user.role !== 'student') return true;
+  return Boolean(user.profileComplete);
 }
 
 export function normalizeStudent(raw = {}) {
@@ -58,6 +89,7 @@ export function normalizeStudent(raw = {}) {
     faceImages,
     faceCount: raw.faceCount ?? raw.faceImageCount ?? faceImages.length,
     hasEmbedding: raw.hasEmbedding ?? raw.embeddingReady ?? null,
+    autoEnrolled: Boolean(raw.autoEnrolled),
   };
 }
 
@@ -66,8 +98,10 @@ export function normalizeCourse(raw = {}) {
   return {
     id: idOf(raw),
     code: raw.code ?? raw.courseCode ?? '',
-    name: raw.name ?? raw.title ?? '',
+    name: raw.name ?? raw.title ?? raw.courseName ?? '',
     department: raw.department ?? '',
+    semester: raw.semester ?? null,
+    section: raw.section ?? '',
     professorName: raw.professor?.name ?? raw.professorName ?? '',
     studentCount: raw.studentCount ?? raw.enrolledCount ?? students.length,
     students,
@@ -88,8 +122,6 @@ export function normalizeQuality(raw) {
     message: raw?.message ?? null,
   };
 }
-
-const FACE_IMAGE_PATTERN = /^img(\d+)_/;
 
 function normalizeFace(face, position, imageIndex, imageId) {
   const faceId = face.faceId ?? `face_${position}`;
@@ -114,29 +146,19 @@ function analysisOf(raw) {
 }
 
 function normalizeImage(raw, index) {
-  const analysis = analysisOf(raw);
   const id = idOf(raw) ?? `image-${index}`;
+  const faces = raw.faces ?? analysisOf(raw)?.faces ?? [];
   return {
     id,
     index,
     url: assetUrl(raw.url ?? raw.path ?? raw.imageUrl),
-    width: raw.width ?? analysis?.width ?? null,
-    height: raw.height ?? analysis?.height ?? null,
-    analyzed: Boolean(analysis),
-    hasQuality: Boolean(analysis?.imageQuality),
-    imageQuality: normalizeQuality(analysis?.imageQuality),
-    faces: (analysis?.faces ?? []).map((face, position) => normalizeFace(face, position, index, id)),
+    width: raw.width ?? null,
+    height: raw.height ?? null,
+    analyzed: Boolean(raw.imageQuality || analysisOf(raw)),
+    hasQuality: Boolean(raw.imageQuality),
+    imageQuality: normalizeQuality(raw.imageQuality),
+    faces: faces.map((face, position) => normalizeFace(face, position, index, id)),
   };
-}
-
-function distributeFaces(images, faces) {
-  faces.forEach((face, position) => {
-    const match = FACE_IMAGE_PATTERN.exec(face.faceId ?? '');
-    let index = match ? Number(match[1]) - 1 : 0;
-    if (index < 0 || index >= images.length) index = 0;
-    const image = images[index];
-    if (image) image.faces.push(normalizeFace(face, position, index, image.id));
-  });
 }
 
 function deriveQuality(images) {
@@ -149,37 +171,28 @@ function deriveQuality(images) {
 }
 
 function normalizeRecord(raw) {
+  // The server sends flat roll number/name alongside the status. Older shapes
+  // nested them under a populated student object.
   const studentId = raw.studentId ?? raw.student?.studentId ?? raw.student?.rollNumber ?? raw.rollNumber;
   const present = raw.status ?? (typeof raw.present === 'boolean' ? (raw.present ? 'present' : 'absent') : undefined);
-  let source = raw.source;
-  if (!source) {
-    if (raw.manual) source = SOURCE.MANUAL;
-    else if (raw.reviewed) source = SOURCE.REVIEWED;
-  }
   return {
     studentId,
     rollNumber: raw.rollNumber ?? raw.student?.rollNumber ?? studentId,
     name: raw.name ?? raw.student?.name ?? '',
     status: present,
-    source,
-    faceKey: raw.faceId && raw.imageId ? `${raw.imageId}:${raw.faceId}` : null,
+    source: raw.source,
+    faceKey: raw.faceId && raw.imageId ? `${raw.imageId}:${raw.faceId}` : raw.faceKey ?? null,
     ignored: Boolean(raw.ignored),
   };
 }
 
 export function normalizeSession(raw = {}) {
   const course = courseRef(raw.course ?? raw.courseId);
-  const images = (raw.images ?? []).map(normalizeImage);
-  const aggregate = analysisOf(raw);
+  // The server now sends each image with its own faces and quality already
+  // attached, so the flat fallback is only for older payloads.
+  const images = (raw.images ?? raw.uploadedImages ?? []).map(normalizeImage);
 
-  if (aggregate && !images.some((image) => image.analyzed)) {
-    distributeFaces(images, aggregate.faces ?? []);
-    images.forEach((image) => {
-      image.analyzed = true;
-    });
-  }
-
-  const imageQuality = aggregate?.imageQuality ? normalizeQuality(aggregate.imageQuality) : deriveQuality(images);
+  let imageQuality = raw.imageQuality ? normalizeQuality(raw.imageQuality) : deriveQuality(images);
 
   let records = (raw.records ?? raw.attendance ?? []).map(normalizeRecord);
   if (!records.length && raw.course?.students?.length) {
@@ -201,7 +214,8 @@ export function normalizeSession(raw = {}) {
     images,
     imageQuality,
     records,
-    errorMessage: raw.errorMessage ?? raw.error ?? null,
+    warnings: raw.warnings ?? [],
+    errorMessage: raw.failure?.message ?? raw.errorMessage ?? raw.error ?? null,
     finalizedAt: raw.finalizedAt ?? null,
   };
 }

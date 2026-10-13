@@ -3,7 +3,12 @@ const isPopulatedStudent = (value) => Boolean(value) && typeof value === 'object
 const student = (value) => {
   if (!value) return null;
   if (!isPopulatedStudent(value)) return { id: value };
-  return { id: value._id, studentId: value.studentId, rollNumber: value.rollNumber, name: value.name };
+  return {
+    id: value._id,
+    studentId: value.studentId,
+    rollNumber: value.rollNumber,
+    name: value.name
+  };
 };
 
 const course = (value) => {
@@ -17,13 +22,35 @@ const course = (value) => {
   };
 };
 
+const face = (value) => ({
+  faceId: value.faceId,
+  imageId: value.imageId,
+  bbox: value.bbox || [],
+  detectionConfidence: value.detectionConfidence ?? null,
+  faceQuality: value.faceQuality ?? null,
+  studentId: value.studentId ?? null,
+  similarity: value.similarity ?? null,
+  decision: value.decision ?? null
+});
+
 const image = (value) => ({
   id: value._id,
   originalName: value.originalName,
   mimeType: value.mimeType,
   size: value.size,
   uploadedAt: value.uploadedAt,
-  quality: value.quality && value.quality.status ? value.quality : null
+  // The client renders photos from this URL. The server serves /api/files.
+  url: value.path ? `/api/files/${value.path}` : null,
+  imageQuality:
+    value.quality && value.quality.status
+      ? {
+          status: value.quality.status,
+          blurScore: value.quality.blurScore ?? null,
+          brightnessScore: value.quality.brightnessScore ?? null,
+          message: value.quality.message ?? null
+        }
+      : null,
+  faces: []
 });
 
 const evidence = (value) => ({
@@ -35,20 +62,28 @@ const evidence = (value) => ({
   decision: value.decision
 });
 
-const record = (value) => ({
-  id: value._id,
-  sessionId: value.sessionId,
-  student: student(value.studentId),
-  status: value.status,
-  source: value.source,
-  decision: value.decision,
-  confidence: value.confidence ?? null,
-  faceQuality: value.faceQuality ?? null,
-  aiStudentId: value.aiStudentId ?? null,
-  evidence: (value.evidence || []).map(evidence),
-  reviewedByProfessor: value.reviewedByProfessor,
-  reviewedAt: value.reviewedAt ?? null
-});
+const record = (value) => {
+  const populated = isPopulatedStudent(value.studentId) ? value.studentId : null;
+  return {
+    id: value._id,
+    sessionId: value.sessionId,
+    studentId: populated ? populated.studentId : null,
+    rollNumber: populated ? populated.rollNumber : null,
+    name: populated ? populated.name : null,
+    status: value.status,
+    source: value.source,
+    decision: value.decision,
+    confidence: value.confidence ?? null,
+    faceQuality: value.faceQuality ?? null,
+    aiStudentId: value.aiStudentId ?? null,
+    faceId: value.evidence && value.evidence[0] ? value.evidence[0].faceId : null,
+    imageId: value.evidence && value.evidence[0] ? value.evidence[0].imageId : null,
+    evidence: (value.evidence || []).map(evidence),
+    ignored: Boolean(value.ignored),
+    reviewedByProfessor: value.reviewedByProfessor,
+    reviewedAt: value.reviewedAt ?? null
+  };
+};
 
 const counts = (value) => ({
   totalStudents: value.totalStudents,
@@ -75,12 +110,41 @@ const sessionSummary = (value, courseDoc) => ({
   createdAt: value.createdAt
 });
 
-const session = (value, courseDoc) => ({
-  ...sessionSummary(value, courseDoc),
-  uploadedImages: (value.uploadedImages || []).map(image),
-  failure: value.failure && value.failure.code ? value.failure : null,
-  analysis: value.analysis ?? null,
-  updatedAt: value.updatedAt
-});
+/**
+ * Full session payload. Faces are distributed onto their image and also kept in
+ * a flat list, so a client can render either the gallery or a face list.
+ */
+const session = (value, courseDoc) => {
+  const analysis = value.analysis || null;
+  const images = (value.uploadedImages || []).map(image);
 
-module.exports = { student, course, image, record, counts, session, sessionSummary };
+  if (analysis && Array.isArray(analysis.faces)) {
+    const byId = new Map(images.map((item) => [String(item.id), item]));
+    for (const item of analysis.faces) {
+      const target = byId.get(String(item.imageId));
+      if (target) target.faces.push(face(item));
+    }
+  }
+
+  return {
+    ...sessionSummary(value, courseDoc),
+    images,
+    // Aggregate quality: worst usable shot, or the first unusable one.
+    imageQuality: analysis ? analysis.imageQuality ?? deriveQuality(images) : null,
+    faces: analysis && Array.isArray(analysis.faces) ? analysis.faces.map(face) : [],
+    failure: value.failure && value.failure.code ? value.failure : null,
+    analysis,
+    updatedAt: value.updatedAt
+  };
+};
+
+function deriveQuality(images) {
+  const measured = images.filter((item) => item.imageQuality);
+  if (!measured.length) return null;
+  const unusable = measured.find((item) => item.imageQuality.status === 'unusable');
+  if (unusable) return unusable.imageQuality;
+  const poor = measured.find((item) => item.imageQuality.status !== 'good');
+  return poor ? { ...poor.imageQuality, status: 'poor' } : null;
+}
+
+module.exports = { student, course, face, image, evidence, record, counts, session, sessionSummary };

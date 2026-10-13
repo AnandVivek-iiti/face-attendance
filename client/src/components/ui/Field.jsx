@@ -1,5 +1,15 @@
 import { useId } from 'react';
 
+// Always occupies one line, so a hint or error appearing mid-typing cannot
+// change the height of the form and shove the field under the caret.
+function Message({ hint, error }) {
+  return (
+    <p role={error ? 'alert' : undefined} className={`mt-1 min-h-4 text-xs leading-4 ${error ? 'text-bad' : 'text-muted'}`}>
+      {error || hint || '\u00a0'}
+    </p>
+  );
+}
+
 export function Field({ label, hint, error, children }) {
   return (
     <div>
@@ -11,16 +21,15 @@ export function Field({ label, hint, error, children }) {
   );
 }
 
-export function TextInput({ label, hint, error, className = '', ...rest }) {
+export function TextInput({ label, hint, error, className = '', hideLabel = false, ...rest }) {
   const id = useId();
   return (
     <div>
-      <label htmlFor={id} className="mb-1 block text-sm font-semibold text-ink">
+      <label htmlFor={id} className={hideLabel ? 'sr-only' : 'mb-1 block text-sm font-semibold text-ink'}>
         {label}
       </label>
       <input id={id} className={`control ${className}`} aria-invalid={Boolean(error)} {...rest} />
-      {hint && !error && <p className="mt-1 text-xs text-muted">{hint}</p>}
-      {error && <p className="mt-1 text-xs text-bad">{error}</p>}
+      <Message hint={hint} error={error} />
     </div>
   );
 }
@@ -35,8 +44,7 @@ export function Select({ label, hint, error, children, ...rest }) {
       <select id={id} className="control" aria-invalid={Boolean(error)} {...rest}>
         {children}
       </select>
-      {hint && !error && <p className="mt-1 text-xs text-muted">{hint}</p>}
-      {error && <p className="mt-1 text-xs text-bad">{error}</p>}
+      <Message hint={hint} error={error} />
     </div>
   );
 }

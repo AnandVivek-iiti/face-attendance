@@ -1,6 +1,9 @@
+const fs = require('fs');
+const path = require('path');
 const AttendanceSession = require('../models/AttendanceSession');
 const AttendanceRecord = require('../models/AttendanceRecord');
 const Course = require('../models/Course');
+const env = require('../config/env');
 const AppError = require('../utils/AppError');
 const auditService = require('./auditService');
 const courseService = require('./courseService');
@@ -139,6 +142,36 @@ const buildReview = async (session) => {
 
 const getReview = async (id, user) => buildReview(await getOwnedSession(id, user, { allowAdmin: true }));
 
+const deleteSession = async (id, user) => {
+  const session = await getOwnedSession(id, user);
+  if (session.status === SESSION_STATUS.PROCESSING) {
+    throw new AppError('Cannot delete a session while analysis is in progress', 409, { code: 'SESSION_BUSY' });
+  }
+
+  await AttendanceRecord.deleteMany({ sessionId: session._id });
+
+  const paths = (session.uploadedImages || []).map((image) => image.path).filter(Boolean);
+  await Promise.allSettled(paths.map((relativePath) => storageService.removeStored(relativePath)));
+  try {
+    await fs.promises.rm(path.join(env.storageRoot, 'attendance-images', String(session._id)), {
+      recursive: true,
+      force: true
+    });
+  } catch {
+    // Best-effort: the session folder may already be gone or partially deleted.
+  }
+
+  await AttendanceSession.deleteOne({ _id: session._id });
+  await auditService.record(
+    auditService.userEntry(user, {
+      sessionId: session._id,
+      action: AUDIT_ACTIONS.SESSION_DELETED,
+      after: { courseId: session.courseId, date: session.date, status: session.status }
+    })
+  );
+  return { deleted: true, sessionId: String(session._id) };
+};
+
 module.exports = {
   getOwnedSession,
   assertNotFinalized,
@@ -146,5 +179,6 @@ module.exports = {
   createSession,
   addImages,
   buildReview,
-  getReview
+  getReview,
+  deleteSession
 };
