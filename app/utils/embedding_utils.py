@@ -42,6 +42,9 @@ def build_gallery(students: list[EnrolledStudent]) -> Gallery:
     for student in students:
         merged.setdefault(student.student_id, []).append(student.embeddings)
     student_ids = list(merged)
+    if not student_ids:
+        # First session of a course: nothing enrolled yet.
+        return Gallery([], np.zeros((0, 0), dtype=np.float32), np.array([0]))
     blocks = [np.concatenate(merged[sid], axis=0) for sid in student_ids]
     sizes = np.array([block.shape[0] for block in blocks])
     starts = np.concatenate(([0], np.cumsum(sizes)[:-1]))

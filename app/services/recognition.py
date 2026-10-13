@@ -32,6 +32,10 @@ class RecognitionService:
     def match(self, embeddings: np.ndarray, gallery: Gallery) -> list[Match]:
         if embeddings.shape[0] == 0:
             return []
+        # A course's first session has no roster yet: every face is unmatched
+        # so the professor can build the list by hand.
+        if gallery.matrix.shape[0] == 0:
+            return [Match(None, 0.0, 0.0) for _ in range(embeddings.shape[0])]
         scores = student_similarity(embeddings, gallery)
         assigned = self._assign_unique(scores)
         matches = []

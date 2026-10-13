@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     insightface_root: str = "~/.insightface"
     device: str = "auto"
     detection_size: int = 1280
+    detection_min_size: int = 640
+    warmup: bool = True
     detection_threshold: float = 0.5
     max_concurrent_inferences: int = 1
 
