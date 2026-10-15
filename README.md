@@ -1,6 +1,6 @@
 # Face Attendance System
 
-A full-stack face-attendance system for IIT Indoor, enabling professors to take attendance via classroom photo capture, ML face mapping, roll number assignment, and CSV export.
+A full-stack face-attendance system for IIT Indore, enabling professors to take attendance via classroom photo capture, ML face mapping, roll number assignment, and CSV export.
 
 ## Architecture (3-Tier)
 
