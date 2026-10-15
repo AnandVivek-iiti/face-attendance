@@ -1,7 +1,4 @@
-/* Exercises the professor's roster-building path directly:
- *   analysis has an unknown face -> assign it to a new roll number ->
- *   student is created, embedding stored, marked present -> counts update.
- * This is the logic that matters; it does not need a real photo. */
+
 const db = require('../src/config/db');
 const mongoose = require('mongoose');
 const AttendanceSession = require('../src/models/AttendanceSession');
@@ -27,7 +24,7 @@ const main = async () => {
 
   // Idempotent: clear leftovers from a previous run so "created" is meaningful.
   await Student.deleteOne({ rollNumber: 'ME217001' });
-  await AttendanceSession.deleteMany({ professorId: actor._id, 'uploadedImages.filename': 'test.jpg' });
+  await AttendanceSession.deleteMany({ professorId: actor._id, 'uploadedImages.filename': 'test-image.jpg' });
 
   // Fresh session for this test.
   const stamp = new Date();
@@ -44,9 +41,9 @@ const main = async () => {
     uploadedImages: [
       {
         _id: imageId,
-        filename: 'test.jpg',
-        path: 'attendance-images/test/test.jpg',
-        originalName: 'test.jpg',
+        filename: 'test-image.jpg',
+        path: 'attendance-images/test/test-image.jpg',
+        originalName: 'test-image.jpg',
         mimeType: 'image/jpeg',
         size: 1000,
         quality: { status: 'good', blurScore: 200, brightnessScore: 0.8, message: null }

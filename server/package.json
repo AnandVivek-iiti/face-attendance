@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "main": "src/app.js",
-  "engines": { "node": ">=18.17" },
+  "engines": {
+    "node": ">=18.17"
+  },
   "scripts": {
     "start": "node src/app.js",
-    "dev": "node --watch src/app.js",
+    "dev": "nodemon src/app.js",
     "test": "node --test",
     "user:create": "node ../scripts/create-user.js",
     "seed:professor": "node ../scripts/seed-professor.js",
@@ -22,6 +24,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.9.5",
     "multer": "^2.0.2",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
     "zod": "^3.24.1"
   }
 }

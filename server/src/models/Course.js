@@ -10,7 +10,8 @@ const courseSchema = new mongoose.Schema(
     semester: { type: Number, required: true, min: 1, max: 12 },
     section: { type: String, required: true, set: upperTrim },
     department: { type: String, trim: true, set: upperTrim, default: null },
-    room: { type: String, trim: true, default: null }
+    room: { type: String, trim: true, default: null },
+    rollNumberPattern: { type: String, default: null }
   },
   { timestamps: true }
 );

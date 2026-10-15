@@ -78,7 +78,7 @@ const studentProfile = z.object({
   year: year.optional(),
   semester: semester.optional(),
   department: text(100),
-  courseId: objectId
+  courseId: z.string().trim().min(1).optional()
 });
 
 const reviewEnrollmentRequest = z.object({

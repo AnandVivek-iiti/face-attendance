@@ -4,6 +4,7 @@ const cors = require('cors');
 const env = require('./config/env');
 const routes = require('./routes');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
+const { initializeGooglePassport } = require('./middleware/googleAuth');
 
 const createApp = () => {
   const app = express();
@@ -13,6 +14,10 @@ const createApp = () => {
   // The client sends cookies, so the browser needs credentials allowed here.
   app.use(cors({ origin: env.clientOrigins, credentials: true }));
   app.use(express.json({ limit: '1mb' }));
+
+  // Initialize Google OAuth passport strategy
+  initializeGooglePassport();
+
   app.use('/api', routes);
   app.use(notFound);
   app.use(errorHandler);

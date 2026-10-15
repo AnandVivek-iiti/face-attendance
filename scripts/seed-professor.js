@@ -1,11 +1,4 @@
-/**
- * Seeds the ME217 test course, its professor, and the default departments.
- *
- * ME217 is the course every test is run against. Its professor is Pradeep Kundu
- * in room L03, and his login password is auto-derived at course creation:
- *   IIT@INDORE#ME217
- * Re-running is safe: existing records are reused, not duplicated.
- */
+
 const db = require('../server/src/config/db');
 const User = require('../server/src/models/User');
 const Course = require('../server/src/models/Course');
@@ -79,10 +72,7 @@ const main = async () => {
     await courseService.create({ ...COURSE, professorId: professor._id }, null);
     console.log(`Created course: ${COURSE.courseCode} - ${COURSE.courseName} (room ${COURSE.room})`);
   }
-
-  // ME217 is the designated test course: make sure its professor's password is
-  // the auto-derived one even if the course predates the password logic.
-  const stored = await User.findOne({ email: PROFESSOR.email }).select('+passwordHash passwordSetByCourse');
+ const stored = await User.findOne({ email: PROFESSOR.email }).select('+passwordHash passwordSetByCourse');
   if (stored.passwordSetByCourse !== COURSE.courseCode) {
     await User.updateOne(
       { _id: professor._id },

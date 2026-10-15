@@ -3,6 +3,7 @@ const rateLimit = require('express-rate-limit');
 const validate = require('../middleware/validate');
 const schemas = require('../utils/validation');
 const controller = require('../controllers/auth.controller');
+const { authenticateGoogle, googleCallbackHandler } = require('../middleware/googleAuth');
 
 const router = express.Router();
 
@@ -15,5 +16,8 @@ const loginLimiter = rateLimit({
 });
 
 router.post('/login', loginLimiter, validate({ body: schemas.login }), controller.login);
+
+router.get('/google', authenticateGoogle);
+router.get('/google/callback', googleCallbackHandler);
 
 module.exports = router;

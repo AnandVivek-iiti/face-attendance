@@ -105,6 +105,7 @@ export function normalizeCourse(raw = {}) {
     professorName: raw.professor?.name ?? raw.professorName ?? '',
     studentCount: raw.studentCount ?? raw.enrolledCount ?? students.length,
     students,
+    rollNumberPattern: raw.rollNumberPattern
   };
 }
 

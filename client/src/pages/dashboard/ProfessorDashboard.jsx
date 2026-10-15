@@ -67,7 +67,7 @@ export default function ProfessorDashboard({ user }) {
       {header}
 
       <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={BookOpen} label="Total Courses" value={courses.data.length} />
+        <StatCard icon={BookOpen} label="Total Courses" value={(courses.data ?? 0).length} />
         <StatCard icon={CalendarCheck} label="Today's Sessions" value={today.length} />
         <StatCard icon={ClipboardList} label="Pending Reviews" value={pending.length} hint="Sessions not yet finalized" />
         <StatCard

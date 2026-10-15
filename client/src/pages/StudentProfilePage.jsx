@@ -361,6 +361,11 @@ export default function StudentProfilePage() {
                   </option>
                 ))}
               </Select>
+              {values.courseId && courses.some((c) => c.id === values.courseId) && (
+                <p className="mt-2 text-sm text-muted" role="status">
+                  Pattern: {courses.find((c) => c.id === values.courseId)?.rollNumberPattern || ''}
+                </p>
+              )}
               {courses.length === 0 && (
                 <p className="mt-2 text-sm text-warn" role="status">
                   {coursesError || 'No courses found — ask your professor to create one, then retry.'}{' '}

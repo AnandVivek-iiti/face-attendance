@@ -3,7 +3,7 @@ import EmptyState from './ui/EmptyState';
 import SessionStatusBadge from './SessionStatusBadge';
 import { formatDate } from '../utils/format';
 
-export default function SessionList({ sessions, emptyTitle, emptyDescription, emptyAction }) {
+export default function SessionList({ sessions = [], emptyTitle, emptyDescription, emptyAction }) {
   if (!sessions.length) {
     return <EmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} />;
   }
