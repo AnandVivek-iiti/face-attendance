@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app.api.schemas import (
     AnalyzeResponse,
+    CropResponse,
     HealthResponse,
     ReferenceEmbeddingResponse,
     StudentIn,
@@ -14,7 +15,7 @@ from app.api.schemas import (
 from app.config import Settings
 from app.errors import AppError
 from app.utils.embedding_utils import EnrolledStudent, to_embedding_matrix
-from app.utils.image_utils import decode_image, validate_upload
+from app.utils.image_utils import crop_face_jpeg, decode_image, validate_upload
 
 router = APIRouter()
 
@@ -93,6 +94,23 @@ def analyze_classroom(
     return request.app.state.attendance.analyze(
         decoded, enrolled, uuid.uuid4().hex[:12], include_embeddings=includeEmbeddings
     )
+
+
+@router.post("/crop-face", response_model=CropResponse, dependencies=[Depends(require_api_key)])
+def crop_face(
+    request: Request,
+    image: UploadFile = File(...),
+    boxes: str = Form(...),
+    settings: Settings = Depends(settings_dep),
+):
+    try:
+        parsed = json.loads(boxes)
+    except json.JSONDecodeError:
+        raise AppError("INVALID_BOXES", "boxes must be a valid JSON array", 422)
+    if not isinstance(parsed, list) or not parsed:
+        raise AppError("INVALID_BOXES", "boxes must be a non-empty JSON array", 422)
+    decoded = read_image(image, settings)
+    return CropResponse(crops=[crop_face_jpeg(decoded, box) for box in parsed])
 
 
 @router.post("/generate-embedding", response_model=ReferenceEmbeddingResponse, dependencies=[Depends(require_api_key)])

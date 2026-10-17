@@ -91,6 +91,33 @@ def test_api_key_enforced(client):
     assert post(client, headers={}).status_code == 401
 
 
+def test_crop_face_returns_one_crop_per_box(client):
+    response = client.post(
+        "/crop-face",
+        files={"image": ("a.jpg", jpeg(), "image/jpeg")},
+        data={"boxes": json.dumps([[0, 0, 64, 64], [10, 10, 10, 10]])},
+        headers={"X-API-Key": "secret"},
+    )
+    assert response.status_code == 200
+    crops = response.json()["crops"]
+    assert len(crops) == 2
+    assert crops[0] and crops[1] is None
+
+
+def test_crop_face_enforces_api_key_and_valid_boxes(client):
+    assert client.post(
+        "/crop-face",
+        files={"image": ("a.jpg", jpeg(), "image/jpeg")},
+        data={"boxes": json.dumps([[0, 0, 64, 64]])},
+    ).status_code == 401
+    assert client.post(
+        "/crop-face",
+        files={"image": ("a.jpg", jpeg(), "image/jpeg")},
+        data={"boxes": "not-json"},
+        headers={"X-API-Key": "secret"},
+    ).json()["error"]["code"] == "INVALID_BOXES"
+
+
 def test_health_is_open(client):
     assert client.get("/health").json()["embeddingModel"] == "buffalo_l"
 

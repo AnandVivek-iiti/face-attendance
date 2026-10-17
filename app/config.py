@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     high_confidence_threshold: float = 0.55
     review_threshold: float = 0.40
     min_match_margin: float = 0.05
+    quality_bypass_similarity: float = 1.01
+    quality_bypass_margin: float = 0.10
+    gallery_pooling: str = "max"
+    embed_flip: bool = False
 
     max_image_bytes: int = 10 * 1024 * 1024
     max_image_pixels: int = 50_000_000
@@ -65,6 +69,8 @@ class Settings(BaseSettings):
             raise ValueError("require 0 <= REVIEW_THRESHOLD <= HIGH_CONFIDENCE_THRESHOLD <= 1")
         if self.device not in {"auto", "cpu", "cuda"}:
             raise ValueError("DEVICE must be auto, cpu or cuda")
+        if self.gallery_pooling not in {"max", "top2", "centroid"}:
+            raise ValueError("GALLERY_POOLING must be max, top2 or centroid")
         return self
 
     @property

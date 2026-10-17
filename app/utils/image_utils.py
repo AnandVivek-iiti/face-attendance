@@ -1,3 +1,4 @@
+import base64
 import io
 
 import cv2
@@ -59,3 +60,37 @@ def pad_border(image: np.ndarray, ratio: float) -> np.ndarray:
     height, width = image.shape[:2]
     pad_y, pad_x = int(height * ratio), int(width * ratio)
     return cv2.copyMakeBorder(image, pad_y, pad_y, pad_x, pad_x, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+
+
+def crop_face_jpeg(image: np.ndarray, bbox, pad_ratio: float = 0.2, target_side: int = 160) -> str | None:
+    """Base64 JPEG of a padded face crop scaled to a thumbnail size.
+
+    Returns None for a box that is malformed or lies outside the image, so a
+    caller can skip that one face without failing the whole request.
+    """
+    height, width = image.shape[:2]
+    try:
+        x1, y1, x2, y2 = (int(round(float(value))) for value in bbox)
+    except (TypeError, ValueError):
+        return None
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    pad_x, pad_y = int((x2 - x1) * pad_ratio), int((y2 - y1) * pad_ratio)
+    left, top = max(0, x1 - pad_x), max(0, y1 - pad_y)
+    right, bottom = min(width, x2 + pad_x), min(height, y2 + pad_y)
+    crop = image[top:bottom, left:right]
+    if crop.size == 0:
+        return None
+
+    crop_h, crop_w = crop.shape[:2]
+    scale = target_side / max(1, min(crop_h, crop_w))
+    if abs(scale - 1) > 0.01:
+        interpolation = cv2.INTER_AREA if scale < 1 else cv2.INTER_LINEAR
+        crop = cv2.resize(crop, (max(1, int(crop_w * scale)), max(1, int(crop_h * scale))),
+                          interpolation=interpolation)
+
+    ok, buffer = cv2.imencode(".jpg", crop, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    if not ok:
+        return None
+    return base64.b64encode(buffer.tobytes()).decode("ascii")

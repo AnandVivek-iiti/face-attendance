@@ -9,7 +9,15 @@ from app.models.registry import ModelRegistry
 from app.services.detection import DetectionService, clamp_bbox
 from app.services.quality_check import FaceQuality, ImageQuality, assess_face, assess_image
 from app.services.recognition import HIGH, REVIEW, UNKNOWN, RecognitionService
-from app.utils.debug_crops import FaceCropWriter
+try:
+    from app.utils.debug_crops import FaceCropWriter
+except ModuleNotFoundError:  # optional debug helper; keep the service importable without it
+    class FaceCropWriter:  # type: ignore[no-redef]
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def save(self, *args, **kwargs) -> None:
+            pass
 from app.utils.embedding_utils import EnrolledStudent, build_gallery
 
 logger = logging.getLogger(__name__)

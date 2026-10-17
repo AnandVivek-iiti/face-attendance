@@ -27,7 +27,7 @@ class RecognitionService:
         return self._recognizer.align(image, keypoints)
 
     def embed(self, aligned_crops: list[np.ndarray]) -> np.ndarray:
-        return self._recognizer.embed(aligned_crops)
+        return self._recognizer.embed(aligned_crops, flip=self._settings.embed_flip)
 
     def match(self, embeddings: np.ndarray, gallery: Gallery) -> list[Match]:
         if embeddings.shape[0] == 0:
@@ -36,7 +36,7 @@ class RecognitionService:
         # so the professor can build the list by hand.
         if gallery.matrix.shape[0] == 0:
             return [Match(None, 0.0, 0.0) for _ in range(embeddings.shape[0])]
-        scores = student_similarity(embeddings, gallery)
+        scores = student_similarity(embeddings, gallery, self._settings.gallery_pooling)
         assigned = self._assign_unique(scores)
         matches = []
         for face_index in range(scores.shape[0]):
@@ -73,6 +73,11 @@ class RecognitionService:
         settings = self._settings
         if match.student_id is None or match.similarity < settings.review_threshold:
             return UNKNOWN
+        if (
+            match.similarity >= settings.quality_bypass_similarity
+            and match.margin >= settings.quality_bypass_margin
+        ):
+            return HIGH
         if (
             quality_tier == "ok"
             and match.similarity >= settings.high_confidence_threshold
