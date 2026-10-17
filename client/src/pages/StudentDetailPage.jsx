@@ -5,7 +5,7 @@ import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 import ErrorState from '../components/ui/ErrorState';
-import { TextInput } from '../components/ui/Field';
+import { Select, TextInput } from '../components/ui/Field';
 import PageHeader from '../components/ui/PageHeader';
 import ProgressBar from '../components/ui/ProgressBar';
 import Spinner from '../components/ui/Spinner';
@@ -33,7 +33,7 @@ export default function StudentDetailPage() {
   const canEdit = isAdmin || user.role === ROLES.PROFESSOR;
   const { data: student, loading, error, reload } = useAsync(() => getStudent(id), [id]);
 
-  const [values, setValues] = useState({ name: '', rollNumber: '', email: '' });
+  const [values, setValues] = useState({ name: '', rollNumber: '', email: '', semester: '', section: '' });
   const [saving, setSaving] = useState(false);
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -43,7 +43,15 @@ export default function StudentDetailPage() {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (student) setValues({ name: student.name, rollNumber: student.rollNumber, email: student.email });
+    if (student) {
+      setValues({
+        name: student.name,
+        rollNumber: student.rollNumber,
+        email: student.email,
+        semester: student.semester == null ? '' : String(student.semester),
+        section: student.section || '',
+      });
+    }
   }, [student]);
 
   const change = (key) => (event) => setValues((current) => ({ ...current, [key]: event.target.value }));
@@ -57,6 +65,11 @@ export default function StudentDetailPage() {
         name: values.name.trim(),
         rollNumber: values.rollNumber.trim(),
         ...(isAdmin && { email: values.email.trim() }),
+        // Semester + section decide which course a student belongs to (admin only).
+        ...(isAdmin && values.semester && values.section.trim() && {
+          semester: Number(values.semester),
+          section: values.section.trim(),
+        }),
       });
       toast.success('Student updated.');
       reload();
@@ -120,7 +133,7 @@ export default function StudentDetailPage() {
       </Link>
       <PageHeader
         title={student.name}
-        description={`Roll number ${student.rollNumber}`}
+        description={`Roll number ${student.rollNumber}${student.semester != null ? ` · Semester ${student.semester}` : ''}${student.section ? ` · Section ${student.section}` : ''}${student.active === false ? ' · Inactive' : ''}`}
         actions={
           isAdmin && (
             <Button variant="danger" icon={Trash2} onClick={() => setConfirmDelete(true)}>
@@ -141,6 +154,22 @@ export default function StudentDetailPage() {
             <TextInput label="Full name" value={values.name} onChange={change('name')} disabled={!canEdit} required />
             <TextInput label="Roll number" value={values.rollNumber} onChange={change('rollNumber')} error={idError} disabled={!canEdit} required />
             <TextInput label="Email" type="email" value={values.email} onChange={change('email')} disabled={!isAdmin} />
+            <div className="grid grid-cols-2 gap-3">
+              <Select label="Semester" value={values.semester} onChange={change('semester')} disabled={!isAdmin}>
+                <option value="">—</option>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </Select>
+              <TextInput label="Section" value={values.section} onChange={change('section')} disabled={!isAdmin} />
+            </div>
+            {isAdmin && (
+              <p className="text-xs text-muted">
+                A student is on a course's roster when their semester and section match the course.
+              </p>
+            )}
             {canEdit && (
               <Button type="submit" variant="primary" icon={Save} loading={saving} disabled={!values.name.trim() || !values.rollNumber.trim() || Boolean(idError)}>
                 Save changes

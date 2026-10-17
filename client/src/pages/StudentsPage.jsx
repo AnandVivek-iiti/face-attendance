@@ -142,13 +142,15 @@ export default function StudentsPage() {
           />
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[520px] text-left text-sm">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <caption className="sr-only">Students</caption>
               <thead>
                 <tr className="surface border-b border-line text-xs font-semibold text-muted">
                   <th scope="col" className="px-4 py-2">Roll Number</th>
                   <th scope="col" className="px-4 py-2">Name</th>
                   <th scope="col" className="px-4 py-2">Department</th>
+                  <th scope="col" className="px-4 py-2">Semester</th>
+                  <th scope="col" className="px-4 py-2">Section</th>
                   <th scope="col" className="px-4 py-2">Face photographs</th>
                 </tr>
               </thead>
@@ -167,6 +169,13 @@ export default function StudentsPage() {
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-muted">{student.department}</td>
+                    <td className="px-4 py-3 tabular-nums text-muted">{student.semester ?? '—'}</td>
+                    <td className="px-4 py-3 text-muted">
+                      {student.section || '—'}
+                      {student.active === false && (
+                        <Badge tone="neutral" className="ml-2">Inactive</Badge>
+                      )}
+                    </td>
                     <td className="px-4 py-3 tabular-nums">
                       {student.faceCount > 0 ? (
                         student.faceCount

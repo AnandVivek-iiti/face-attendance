@@ -17,12 +17,17 @@ import { getStudents } from '../services/studentService';
 import { ROLES } from '../utils/constants';
 import { getErrorMessage } from '../utils/errors';
 
-// Students are not embedded in the course payload; the roster is every active
-// student in the course's semester + section.
+// Students are not embedded in the course payload. The server defines the roster
+// (and the "enrolled" count) as every ACTIVE student in the course's semester +
+// section, so the dialog asks for exactly that.
 function CourseStudentsDialog({ course, onClose }) {
-  const { data, loading, error, reload } = useAsync(getStudents, []);
+  const { data, loading, error, reload } = useAsync(
+    () => getStudents({ semester: course.semester, section: course.section, active: true }),
+    [course.id],
+  );
   const students = (data ?? []).filter(
     (student) =>
+      student.active !== false &&
       String(student.semester) === String(course.semester) &&
       String(student.section).toUpperCase() === String(course.section).toUpperCase(),
   );
@@ -32,7 +37,10 @@ function CourseStudentsDialog({ course, onClose }) {
       {error && <ErrorState title="Could not load students" message={error} onRetry={reload} />}
       {data &&
         (students.length === 0 ? (
-          <EmptyState title="No students enrolled" />
+          <EmptyState
+            title="No students enrolled"
+            description={`Students belong to a course by semester and section (this course: Semester ${course.semester}, Section ${course.section}). A student with a different semester or section, or an inactive one, is not listed here but still appears under Students.`}
+          />
         ) : (
           <ul className="surface max-h-80 divide-y divide-line overflow-y-auto rounded-ctl border border-line">
             {students.map((student) => (
