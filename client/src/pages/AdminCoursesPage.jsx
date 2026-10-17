@@ -227,8 +227,8 @@ function ProfessorList({ professors, onCreated }) {
         await updateProfessor(editing.id, { name: form.name, department: form.department });
         toast.success('Professor updated.');
       } else {
-        const result = await addProfessor(form);
-        setCreated({ name: form.name, email: form.email, password: result?.temporaryPassword ?? '' });
+        await addProfessor(form);
+        setCreated({ name: form.name, email: form.email });
         toast.success(`${form.name} added.`);
       }
       setForm({ name: '', email: '', department: '' });
@@ -310,13 +310,13 @@ function ProfessorList({ professors, onCreated }) {
         {created ? (
           <div className="space-y-3">
             <p className="text-sm text-ink">
-              {created.name} ({created.email}) can now sign in with this temporary password.
+              {created.name} ({created.email}) was added.
             </p>
-            <p className="select-all rounded-ctl border border-line px-3 py-2 font-mono text-sm text-ink">
-              {created.password || 'Not returned by the server'}
-            </p>
-            <p className="text-xs text-muted">
-              It is shown only once. Share it securely; the professor must change it at first sign-in.
+            <p className="text-sm text-muted">
+              Their password is derived from their first course:{' '}
+              <span className="font-mono text-ink">IIT@INDORE#&lt;COURSE CODE&gt;</span> (for example{' '}
+              <span className="font-mono text-ink">IIT@INDORE#ME217</span>). Assign the professor to a course to
+              activate it.
             </p>
             <div className="flex justify-end pt-2">
               <Button variant="primary" onClick={close}>Done</Button>
@@ -329,7 +329,8 @@ function ProfessorList({ professors, onCreated }) {
             <TextInput label="Department" value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} placeholder="ME" />
             {!editing && (
               <p className="text-xs text-muted">
-                A one-time password is generated and shown to you after the professor is added.
+                The professor signs in with <span className="font-mono">IIT@INDORE#&lt;COURSE CODE&gt;</span>, set from
+                the first course you assign them.
               </p>
             )}
             <div className="flex justify-end gap-2 pt-2">

@@ -2,12 +2,12 @@
 
 ## Do these before deploying
 1. **Rotate JWT_SECRET.** The old `.env.example` shipped the public jwt.io sample token; if any environment used it, anyone can forge an admin login. Generate: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`. The server now refuses to start with that value or a placeholder.
-2. **Run `node scripts/rotate-professor-passwords.js`** (use `--dry-run` first). Professors previously had the password `IIT@INDORE#<COURSE CODE>`; the course code is public and professor emails were exposed to students.
+2. **Professor passwords are course-derived by design** (`IIT@INDORE#<COURSE CODE>`) so an admin can share them without a separate hand-off. The course code is public, so treat it as a secret. To (re)apply the rule to existing accounts, run `node scripts/sync-professor-passwords.js` (use `--dry-run` first).
 3. Set `TRUST_PROXY=1` (or the proxy count) if behind nginx/a load balancer, otherwise rate limiting sees one IP.
 4. `ALLOW_SELF_REGISTRATION` defaults to **false in production** (true in dev). See below.
 
 ## Behaviour changes
-- `POST /courses/professors` now returns a one-time `temporaryPassword` (shown once to the admin). Professors have `mustChangePassword: true` and must call the new `POST /auth/change-password`; changing it revokes older tokens. The client needs a screen for this.
+- `POST /courses/professors` no longer returns a password. A professor's password is set from the first course they are assigned to (`IIT@INDORE#<COURSE CODE>`). `POST /auth/change-password` still exists and changing a password revokes older tokens.
 - `GET /courses/available` no longer returns `professorEmail` to students.
 - Students only see finalized sessions in `/students/attendance`.
 - `/api/files/*` is now limited to files belonging to the professor's own sessions / courses / cohorts (admins: all).
@@ -29,7 +29,7 @@
 - Adding a student to a session during review didn't check they belong to that course.
 
 ## Security fixes
-- Predictable professor passwords removed (see above).
+- Professor passwords are course-derived by design (see above): a deliberate trade-off of convenience over secrecy. Admins can still reset to a strong password via `POST /auth/change-password` after first sign-in.
 - Face embeddings (biometric data) were returned to the browser inside `session.analysis`; now stripped.
 - CSV export formula injection (`=`, `+`, `-`, `@`) neutralised; export filenames sanitised.
 - File route: strict filename allowlist, no double URL-decoding, symlink escape check, per-file ownership.

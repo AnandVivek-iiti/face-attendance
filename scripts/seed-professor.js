@@ -5,6 +5,7 @@ const Course = require('../server/src/models/Course');
 const Department = require('../server/src/models/Department');
 const courseService = require('../server/src/services/courseService');
 const authService = require('../server/src/services/authService');
+const { professorPasswordFor } = require('../server/src/config/constants');
 
 const PROFESSOR = {
   name: 'Pradeep Kundu',
@@ -34,30 +35,18 @@ const DEPARTMENTS = [
 const main = async () => {
   await db.connect();
 
-  // A random one-time password is generated (never a guessable course-code
-  // pattern) and printed once below; the professor must change it at sign-in.
-  let temporaryPassword = null;
-  let professor = await User.findOne({ email: PROFESSOR.email }).select('+passwordHash');
+  let professor = await User.findOne({ email: PROFESSOR.email });
   if (!professor) {
-    temporaryPassword = authService.generateTemporaryPassword();
     professor = await User.create({
       name: PROFESSOR.name,
       email: PROFESSOR.email,
       role: 'professor',
       department: COURSE.department,
-      passwordHash: await authService.hashPassword(temporaryPassword),
-      mustChangePassword: true
+      passwordSetByCourse: null
     });
     console.log(`Created professor: ${professor.name} (${professor.email})`);
   } else {
     console.log(`Professor exists: ${professor.name} (${professor.email})`);
-    if (!professor.passwordHash) {
-      temporaryPassword = authService.generateTemporaryPassword();
-      professor.passwordHash = await authService.hashPassword(temporaryPassword);
-      professor.mustChangePassword = true;
-      await professor.save();
-      console.log('Assigned a one-time password (account had none).');
-    }
   }
 
   for (const dept of DEPARTMENTS) {
@@ -84,14 +73,27 @@ const main = async () => {
     await courseService.create({ ...COURSE, professorId: professor._id }, null);
     console.log(`Created course: ${COURSE.courseCode} - ${COURSE.courseName} (room ${COURSE.room})`);
   }
+  // ME217 is the designated test course: make sure its professor's password is
+  // the course-derived one, even if the course predates this logic.
+  const coursePassword = professorPasswordFor(COURSE.courseCode);
+  const stored = await User.findOne({ email: PROFESSOR.email }).select('+passwordHash passwordSetByCourse');
+  if (stored.passwordSetByCourse !== COURSE.courseCode) {
+    await User.updateOne(
+      { _id: professor._id },
+      {
+        $set: {
+          passwordHash: await authService.hashPassword(coursePassword),
+          passwordSetByCourse: COURSE.courseCode
+        }
+      }
+    );
+    console.log(`Set professor password to ${coursePassword}`);
+  }
+
   console.log('\nProfessor login:');
   console.log(`  email:    ${PROFESSOR.email}`);
-  if (temporaryPassword) {
-    console.log(`  password: ${temporaryPassword}`);
-    console.log('  (one-time password — the professor must change it at first sign-in)');
-  } else {
-    console.log('  password: unchanged (set previously; reset via the admin UI if unknown)');
-  }
+  console.log(`  password: ${coursePassword}`);
+  console.log('  (derived from the course code; the admin can share it directly)');
   console.log('\nStudent flow: any @iiti.ac.in email + a password of 8+ characters.');
 };
 

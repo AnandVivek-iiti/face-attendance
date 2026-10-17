@@ -21,6 +21,12 @@ const ENROLLMENT_REQUEST_STATUS = Object.freeze({
 // Every account at IIIT Indore is keyed on an institutional email.
 const IIIT_EMAIL_DOMAIN = 'iiti.ac.in';
 
+// A professor's password is derived from the course they are first assigned to:
+// IIT@INDORE#<COURSE CODE>, e.g. ME217 -> IIT@INDORE#ME217. Chosen deliberately
+// over random one-time passwords so a professor can sign in with the course code
+// the admin already knows. It is guessable, so treat the course code as a secret.
+const professorPasswordFor = (courseCode) => `IIT@INDORE#${String(courseCode).toUpperCase()}`;
+
 const AI_DECISION = Object.freeze({
   HIGH: 'high_confidence',
   REVIEW: 'needs_review',
@@ -89,6 +95,7 @@ module.exports = {
   RECORD_SOURCE,
   ENROLLMENT_REQUEST_STATUS,
   IIIT_EMAIL_DOMAIN,
+  professorPasswordFor,
   AI_DECISION,
   ML_DECISION,
   ML_PATHS,

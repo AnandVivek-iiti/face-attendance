@@ -1,0 +1,55 @@
+
+services:
+  - type: web
+    name: face-attendance-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # A fresh random secret is generated once and kept by Render.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
+      - key: ML_SERVICE_URL
+        sync: false
+      - key: ML_API_KEY
+        sync: false
+      # The client's public URL (comma-separate extras, e.g. a custom domain).
+      - key: CLIENT_URL
+        sync: false
+      # Render terminates TLS in front of the app; trust one proxy hop so rate
+      # limiting sees the real client IP instead of the proxy's.
+      - key: TRUST_PROXY
+        value: "1"
+      - key: UPLOAD_MAX_SIZE
+        value: "10485760"
+      # "Authorized redirect URIs" in the Google Cloud console.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
+
+  - type: web
+    name: face-attendance-client
+    runtime: static
+    rootDir: client
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      # Where the browser reaches the API (the server URL above). These are baked
+      # into the build, so change them before building.
+      - key: VITE_API_BASE_URL
+        sync: false
+      # Where <img>/file URLs are fetched from (usually the same server URL).
+      - key: VITE_ASSET_BASE_URL
+        sync: false

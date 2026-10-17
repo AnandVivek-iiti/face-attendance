@@ -6,7 +6,7 @@ const auditService = require('./auditService');
 const authService = require('./authService');
 const { toObjectId } = require('../utils/objectId');
 const AttendanceSession = require('../models/AttendanceSession');
-const { ROLES, AUDIT_ACTIONS } = require('../config/constants');
+const { ROLES, AUDIT_ACTIONS, professorPasswordFor } = require('../config/constants');
 
 const getById = async (id) => {
   const course = await Course.findById(toObjectId(id, 'course id'));
@@ -59,9 +59,31 @@ const assertProfessor = async (professorId) => {
   return professor;
 };
 
+/**
+ * A professor's login password is derived from the course they are first
+ * assigned to: IIT@INDORE#<COURSE CODE>. If the professor already has a password
+ * (from an earlier course) it is left untouched, so teaching a second course
+ * never locks them out.
+ */
+const ensureProfessorPassword = async (professorId, courseCode) => {
+  const professor = await User.findById(professorId).select('+passwordHash passwordSetByCourse');
+  if (!professor) return;
+  if (professor.passwordSetByCourse) return;
+  await User.updateOne(
+    { _id: professorId },
+    {
+      $set: {
+        passwordHash: await authService.hashPassword(professorPasswordFor(courseCode)),
+        passwordSetByCourse: courseCode
+      }
+    }
+  );
+};
+
 const create = async (data, actor) => {
   await assertProfessor(data.professorId);
   const course = await Course.create(data);
+  await ensureProfessorPassword(course.professorId, course.courseCode);
 
   if (actor) {
     await auditService.record(
@@ -77,8 +99,15 @@ const create = async (data, actor) => {
 const update = async (id, data, actor) => {
   const course = await getById(id);
   if (data.professorId !== undefined) await assertProfessor(data.professorId);
+  const previousProfessorId = course.professorId;
   course.set(data);
   await course.save();
+
+  // professorId arrives as a string and previousProfessorId is an ObjectId, so
+  // compare their string forms (calling .equals on the string threw).
+  if (data.professorId !== undefined && String(data.professorId) !== String(previousProfessorId)) {
+    await ensureProfessorPassword(data.professorId, course.courseCode);
+  }
 
   if (actor) {
     await auditService.record(
@@ -124,21 +153,19 @@ const listProfessors = async () => {
 };
 
 /**
- * Admin: provision a professor. A random one-time password is generated and
- * returned in this response only; it is never stored in readable form and the
- * professor must change it at first sign-in.
+ * Admin: provision a professor. No password is set here; it is derived from the
+ * first course the professor is assigned to (IIT@INDORE#<COURSE CODE>), so the
+ * admin and professor share the course code they already know.
  */
 const addProfessor = async (data, actor) => {
   const existing = await User.findOne({ email: data.email });
   if (existing) throw new AppError('An account with that email already exists', 409, { code: 'EMAIL_TAKEN' });
-  const temporaryPassword = authService.generateTemporaryPassword();
   const professor = await User.create({
     name: data.name,
     email: data.email,
     role: ROLES.PROFESSOR,
     department: data.department ?? null,
-    passwordHash: await authService.hashPassword(temporaryPassword),
-    mustChangePassword: true
+    passwordSetByCourse: null
   });
   if (actor) {
     await auditService.record(
@@ -148,7 +175,7 @@ const addProfessor = async (data, actor) => {
       })
     );
   }
-  return { ...professor.toJSON(), temporaryPassword };
+  return professor.toJSON();
 };
 
 const updateProfessor = async (id, data, actor) => {
@@ -198,5 +225,6 @@ module.exports = {
   addProfessor,
   updateProfessor,
   removeProfessor,
+  ensureProfessorPassword,
   assertProfessor
 };

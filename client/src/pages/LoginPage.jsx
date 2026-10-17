@@ -5,6 +5,7 @@ import ThemeSwitcher from '../components/ThemeSwitcher';
 import Button from '../components/ui/Button';
 import { useAuth } from '../context/AuthContext';
 import { getAuthConfig } from '../services/authService';
+import { API_BASE_URL } from '../services/http';
 import { getErrorMessage } from '../utils/errors';
 
 const prefersReducedMotion = () =>
@@ -213,11 +214,13 @@ export default function LoginPage() {
     window.history.replaceState({}, '', window.location.pathname);
 
     if (errorParam) {
-      setError(
-        errorParam === 'google_not_configured'
-          ? 'Google sign-in is not configured on this server.'
-          : 'Google sign-in failed. Please try again or use your email and password.',
-      );
+      const messages = {
+        google_not_configured: 'Google sign-in is not configured on this server.',
+        google_wrong_domain: 'Use your @iiti.ac.in Google account.',
+        google_unverified_email: 'Your Google email address is not verified.',
+        google_no_email: 'Google did not share an email address for your account.',
+      };
+      setError(messages[errorParam] || 'Google sign-in failed. Please try again or use your email and password.');
       return;
     }
 
@@ -347,7 +350,7 @@ export default function LoginPage() {
                 variant="ghost"
                 size="lg"
                 onClick={() => {
-                  window.location.href = '/api/auth/google';
+                  window.location.href = `${API_BASE_URL}/api/auth/google`;
                 }}
                 className="mt-3 w-full justify-center gap-2"
               >

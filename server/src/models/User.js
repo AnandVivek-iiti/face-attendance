@@ -17,9 +17,8 @@ const userSchema = new mongoose.Schema(
       semester: { type: Number, min: 1, max: 12, default: null },
       department: { type: String, trim: true, default: null }
     },
-    // Legacy: older versions derived a professor's password from a course code
-    // (guessable). Kept only so scripts/rotate-professor-passwords.js can find
-    // and replace those accounts' passwords. New accounts never set it.
+    // For professors: the course code whose password (IIT@INDORE#<CODE>) is
+    // currently active. Set when the professor is first assigned to a course.
     passwordSetByCourse: { type: String, default: null },
     // True while the password is an admin-issued temporary one.
     mustChangePassword: { type: Boolean, default: false },
