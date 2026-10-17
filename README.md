@@ -16,9 +16,7 @@ A full-stack face-attendance system for IIT Indore, enabling professors to take 
 - **Semester**: 5, **Section**: A
 - **Room**: L03
 - **Professor**: Pradeep Kundu (`pradeep.kundu@iiti.ac.in`)
-- **Auto-generated password** (first login only): `IIT@INDORE#ME217`
-
-> **Professor credentials (placeholder)**: `professor@example.com` / `changeme1234` — change after first login.
+- **Password**: an admin provisions the account and is shown a random one-time password once; the professor must change it at first sign-in. `npm run seed:professor` prints one for the seeded professor.
 
 ## Professors Flow
 
@@ -39,15 +37,18 @@ A full-stack face-attendance system for IIT Indore, enabling professors to take 
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/auth/login` | Login; first login creates account (`@iiti.ac.in` enforced). |
-| `POST` | `/api/courses` | Admin creates course; auto-generates professor password `IIT@INDORE#<CODE>` if `passwordSetByCourse` is null. |
-| `POST` | `/api/sessions` | Professor creates a new attendance session. |
-| `POST` | `/api/sessions/:id/analyze` | Batched ML call: upload classroom photos → returns faces + embeddings. |
-| `POST` | `/api/sessions/:id/faces/:faceId/assign` | Assign roll number to a face → upserts Student, appends embedding. |
-| `GET` | `/api/sessions/:id` | Get session with faces, records, warnings. |
+| `POST` | `/api/courses` | Admin creates a course. |
+| `POST` | `/api/courses/professors` | Admin provisions a professor; response carries a one-time `temporaryPassword`. |
+| `POST` | `/api/attendance/sessions` | Professor creates a new attendance session. |
+| `POST` | `/api/attendance/sessions/:id/images` | Upload classroom photos for the session. |
+| `POST` | `/api/attendance/sessions/:id/analyze` | Batched ML call: returns faces + matches. |
+| `POST` | `/api/attendance/sessions/:id/faces/:faceId/assign` | Assign roll number to a face → upserts Student, appends embedding. |
+| `GET` | `/api/attendance/sessions/:id` | Get session with faces, records, warnings. |
 | `DELETE` | `/api/attendance/sessions/:id` | Professor deletes a session with its photos and records (blocked while analysis is running). |
 | `GET` | `/api/files/*` | Serve session images (traversal-protected, CORS). |
 | `GET` | `/api/courses/available` | List courses student can enroll in. |
-| `POST` | `/api/export/csv` | Per-session or full student×session matrix CSV. |
+| `GET` | `/api/attendance/sessions/:id/export` | Per-session attendance CSV. |
+| `GET` | `/api/attendance/export` | Full student×session matrix CSV. |
 
 ## ML Service
 
@@ -62,7 +63,7 @@ A full-stack face-attendance system for IIT Indore, enabling professors to take 
 - **Port**: 5000
 - **ML service URL**: `http://127.0.0.1:8000` (configurable via `ML_SERVICE_URL`)
 - **CORS**: `credentials: true`, helmet `crossOriginResourcePolicy: cross-origin`
-- **Crypto**: professor passwords auto-derived `IIT@INDORE#<CODE>` at course creation, then stored as **bcrypt hashes** (`bcrypt.hash`, cost 12); login verifies with `bcrypt.compare`. No plaintext passwords in the DB.
+- **Crypto**: provisioned accounts get a random one-time password, stored only as a **bcrypt hash** (`bcrypt.hash`, cost 12); login verifies with `bcrypt.compare`. No plaintext passwords in the DB.
 - **Env files**: `server/.env` and `ml-service/.env` **must not be modified**. Code reads `process.env` with defaults (`mlApiKey` defaults to `''`).
 
 ## Client (React + Vite)
@@ -145,7 +146,7 @@ npm run dev          # starts on http://localhost:5173
 Same commands on **all** OSes:
 ```bash
 cd server
-npm run seed:professor   # creates ME217 course + placeholder prof
+npm run seed:professor   # creates ME217 course + professor, prints a one-time password
 ```
 
 ### Troubleshooting
@@ -161,9 +162,9 @@ npm run seed:professor   # creates ME217 course + placeholder prof
 
 | Suite | Result |
 |-------|--------|
-| `npm test` (server) | 19 passed, 1 skipped |
-| `python -m pytest` (ML) | 42 passed, 7 skipped |
-| `npm run build` (client) | 1704 modules, no errors |
+| `npm test` (server) | 29 passed, 1 skipped |
+| `python -m pytest` (ML) | 49 passed, 7 skipped |
+| `npm run build` (client) | 1711 modules, no errors |
 
 ## Constraints
 

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, Camera, Plus, Users } from 'lucide-react';
+import { BookOpen, Camera, Plus, Trash2, Users } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import EmptyState from '../components/ui/EmptyState';
@@ -12,7 +12,7 @@ import Spinner from '../components/ui/Spinner';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useAsync } from '../hooks/useAsync';
-import { createCourse, getCourses, getProfessors } from '../services/courseService';
+import { createCourse, deleteCourse, getCourses, getProfessors } from '../services/courseService';
 import { getStudents } from '../services/studentService';
 import { ROLES } from '../utils/constants';
 import { getErrorMessage } from '../utils/errors';
@@ -65,7 +65,7 @@ function NewCourseDialog({ open, onClose, onCreated }) {
   const [busy, setBusy] = useState(false);
 
   const change = (key) => (event) => setValues((current) => ({ ...current, [key]: event.target.value }));
-  const ready = values.courseCode.trim() && values.courseName.trim() && values.professorId && values.semester && values.section.trim();
+  const ready = values.courseCode.trim() && values.courseName.trim() && values.professorId && values.semester;
 
   const submit = async (event) => {
     event.preventDefault();
@@ -195,6 +195,11 @@ export default function CoursesPage() {
                 <Button size="sm" icon={Users} onClick={() => setViewing(course)}>
                   View students
                 </Button>
+                {isAdmin && (
+                  <Button size="sm" icon={Trash2} onClick={() => setDeleting(course)}>
+                    Delete
+                  </Button>
+                )}
               </div>
             </Card>
           ))}

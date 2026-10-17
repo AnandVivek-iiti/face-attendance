@@ -177,7 +177,21 @@ export default function StudentsPage() {
                       )}
                     </td>
                     <td className="px-4 py-3 tabular-nums">
-                      {student.faceCount > 0 ? (
+                      {student.faceImages?.length > 0 ? (
+                        <div className="flex items-center gap-1">
+                          {student.faceImages.slice(0, 3).map((img) => (
+                            <img
+                              key={img.id}
+                              src={img.url}
+                              alt=""
+                              className="h-10 w-10 rounded-full object-cover border border-line"
+                            />
+                          ))}
+                          {student.faceCount > 3 && (
+                            <span className="text-xs text-muted">+{student.faceCount - 3}</span>
+                          )}
+                        </div>
+                      ) : student.faceCount > 0 ? (
                         student.faceCount
                       ) : (
                         <Badge tone="warn" icon={AlertTriangle}>None, cannot be recognized</Badge>

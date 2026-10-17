@@ -73,6 +73,12 @@ test('professors must be created on the institutional domain', () => {
   assert.equal(schemas.createProfessor.safeParse({ name: 'P', email: 'p@iiti.ac.in' }).success, true);
 });
 
+test('audit entries do not require a session (course/department/professor events)', () => {
+  const AuditLog = require('../src/models/AuditLog');
+  assert.ok(!AuditLog.schema.path('sessionId').isRequired);
+  assert.equal(AuditLog.schema.path('action').isRequired, true);
+});
+
 test('server refuses to start with a published or placeholder JWT secret', () => {
   const run = (secret) =>
     spawnSync(process.execPath, ['-e', "require('./src/config/env')"], {

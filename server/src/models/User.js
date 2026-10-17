@@ -8,6 +8,7 @@ const userSchema = new mongoose.Schema(
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
     passwordHash: { type: String, select: false },
     role: { type: String, enum: Object.values(ROLES), required: true },
+    department: { type: String, trim: true, default: null },
     studentId: { type: String, trim: true, default: undefined },
     // Student profile (kept on the account so it survives course changes).
     profile: {

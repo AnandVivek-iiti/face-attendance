@@ -91,6 +91,23 @@ const commitUploads = async (files, subdirectory, namePrefix = '') => {
   return stored;
 };
 
+// Write an in-memory buffer (e.g. a face crop returned by the ML service) as a
+// stored file, using the same `<namePrefix><uuid><ext>` naming as uploads so it
+// passes the storage allowlist.
+const writeBuffer = async (buffer, subdirectory, namePrefix = '', extension = '.jpg') => {
+  const targetDir = path.join(root, subdirectory);
+  await fs.promises.mkdir(targetDir, { recursive: true });
+  const filename = `${namePrefix}${crypto.randomUUID()}${extension}`;
+  const destination = path.join(targetDir, filename);
+  await fs.promises.writeFile(destination, buffer);
+  return {
+    filename,
+    absolutePath: destination,
+    relativePath: path.posix.join(subdirectory.split(path.sep).join('/'), filename),
+    size: buffer.length
+  };
+};
+
 const readFile = async (relativePath) => {
   try {
     return await fs.promises.readFile(resolveRelative(relativePath));
@@ -120,6 +137,7 @@ module.exports = {
   dirs,
   ensureDirs,
   commitUploads,
+  writeBuffer,
   readFile,
   removeFiles,
   removeStored,

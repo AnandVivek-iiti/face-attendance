@@ -7,6 +7,7 @@ import Card from '../components/ui/Card';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
 import PageHeader from '../components/ui/PageHeader';
+import ProgressBar from '../components/ui/ProgressBar';
 import Spinner from '../components/ui/Spinner';
 import { useAsync } from '../hooks/useAsync';
 import { getAttendance } from '../services/studentProfileService';
@@ -64,12 +65,7 @@ export default function StudentAttendancePage() {
                 <span className="font-semibold text-ink">Overall attendance</span>
                 <span className="tabular-nums text-muted">{overall.percentage}%</span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-primary"
-                  style={{ width: `${overall.percentage}%` }}
-                />
-              </div>
+              <ProgressBar value={overall.percentage / 100} label="Overall attendance" />
             </Card>
           )}
 

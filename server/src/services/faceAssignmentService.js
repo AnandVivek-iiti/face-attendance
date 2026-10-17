@@ -161,6 +161,9 @@ const assignFace = async (sessionId, faceId, user, body) => {
     { $set: faceMarker('analysis.faces.$', student, face) }
   );
 
+  // Give the student a visible face thumbnail cropped from the classroom photo.
+  await studentService.storeFaceThumbnails(session, [{ student, face }]);
+
   await auditService.record(
     auditService.userEntry(user, {
       sessionId: session._id,
@@ -194,6 +197,7 @@ const assignFaces = async (sessionId, user, { assignments }) => {
   const results = [];
   const markers = [];
   const audits = [];
+  const thumbnails = [];
   // Sequential on purpose: two rows with the same new roll number must see each
   // other's student instead of racing to create it.
   for (const input of assignments) {
@@ -205,6 +209,7 @@ const assignFaces = async (sessionId, user, { assignments }) => {
     try {
       const { student, created } = await applyAssignment(session, course, face, input);
       markers.push({ face, student });
+      thumbnails.push({ student, face });
       audits.push(
         auditService.userEntry(user, {
           sessionId: session._id,
@@ -241,6 +246,7 @@ const assignFaces = async (sessionId, user, { assignments }) => {
     });
     await AttendanceSession.updateOne({ _id: session._id }, { $set }, { arrayFilters });
     await auditService.recordMany(audits);
+    await studentService.storeFaceThumbnails(session, thumbnails);
   }
 
   const summary = await recordService.refreshSessionCounts(session._id);

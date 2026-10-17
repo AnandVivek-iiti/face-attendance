@@ -51,6 +51,22 @@ def build_gallery(students: list[EnrolledStudent]) -> Gallery:
     return Gallery(student_ids, np.concatenate(blocks, axis=0), starts)
 
 
-def student_similarity(queries: np.ndarray, gallery: Gallery) -> np.ndarray:
+def _top2_mean(pairwise: np.ndarray, gallery: Gallery) -> np.ndarray:
+    ends = np.append(gallery.starts[1:], gallery.matrix.shape[0])
+    columns = []
+    for start, end in zip(gallery.starts, ends):
+        block = pairwise[:, start:end]
+        keep = min(2, block.shape[1])
+        top = np.partition(block, block.shape[1] - keep, axis=1)[:, block.shape[1] - keep:]
+        columns.append(top.mean(axis=1))
+    return np.stack(columns, axis=1)
+
+
+def student_similarity(queries: np.ndarray, gallery: Gallery, pooling: str = "max") -> np.ndarray:
+    if pooling == "centroid":
+        centroids = l2_normalize(np.add.reduceat(gallery.matrix, gallery.starts, axis=0))
+        return queries @ centroids.T
     pairwise = queries @ gallery.matrix.T
+    if pooling == "top2":
+        return _top2_mean(pairwise, gallery)
     return np.maximum.reduceat(pairwise, gallery.starts, axis=1)

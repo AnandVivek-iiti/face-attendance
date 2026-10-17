@@ -43,6 +43,15 @@ export async function addProfessor(values) {
   return payload;
 }
 
+export async function updateProfessor(id, values) {
+  const payload = unwrap(await http.put(`/api/courses/professors/${id}`, values));
+  return payload;
+}
+
+export async function deleteProfessor(id) {
+  await http.delete(`/api/courses/professors/${id}`);
+}
+
 export async function getDepartments() {
   const payload = unwrap(await http.get('/api/departments'));
   return (Array.isArray(payload) ? payload : payload?.departments ?? []).map(withId);

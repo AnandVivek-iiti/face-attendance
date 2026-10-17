@@ -119,7 +119,7 @@ const getOne = async (user, id) => {
 
 /** Admin: list provisioned professors so courses can be assigned to one. */
 const listProfessors = async () => {
-  const professors = await User.find({ role: ROLES.PROFESSOR }).select('name email').sort({ name: 1 });
+  const professors = await User.find({ role: ROLES.PROFESSOR }).select('name email department').sort({ name: 1 });
   return professors.map((professor) => professor.toJSON());
 };
 
@@ -136,6 +136,7 @@ const addProfessor = async (data, actor) => {
     name: data.name,
     email: data.email,
     role: ROLES.PROFESSOR,
+    department: data.department ?? null,
     passwordHash: await authService.hashPassword(temporaryPassword),
     mustChangePassword: true
   });
@@ -150,6 +151,41 @@ const addProfessor = async (data, actor) => {
   return { ...professor.toJSON(), temporaryPassword };
 };
 
+const updateProfessor = async (id, data, actor) => {
+  const professor = await User.findOne({ _id: toObjectId(id, 'professor id'), role: ROLES.PROFESSOR });
+  if (!professor) throw new AppError('Professor not found', 404, { code: 'PROFESSOR_NOT_FOUND' });
+  professor.set(data);
+  await professor.save();
+  if (actor) {
+    await auditService.record(
+      auditService.userEntry(actor, {
+        action: AUDIT_ACTIONS.PROFESSOR_UPDATED,
+        after: { professorId: professor._id, changes: Object.keys(data) }
+      })
+    );
+  }
+  return professor.toJSON();
+};
+
+const removeProfessor = async (id, actor) => {
+  const professor = await User.findOne({ _id: toObjectId(id, 'professor id'), role: ROLES.PROFESSOR });
+  if (!professor) throw new AppError('Professor not found', 404, { code: 'PROFESSOR_NOT_FOUND' });
+  const courseCount = await Course.countDocuments({ professorId: professor._id });
+  if (courseCount > 0) {
+    throw new AppError('A professor with assigned courses cannot be removed', 409, { code: 'PROFESSOR_HAS_COURSES' });
+  }
+  await professor.deleteOne();
+  if (actor) {
+    await auditService.record(
+      auditService.userEntry(actor, {
+        action: AUDIT_ACTIONS.PROFESSOR_REMOVED,
+        after: { professorId: professor._id, email: professor.email }
+      })
+    );
+  }
+  return { id: professor._id, email: professor.email };
+};
+
 module.exports = {
   getById,
   list,
@@ -160,5 +196,7 @@ module.exports = {
   getOne,
   listProfessors,
   addProfessor,
+  updateProfessor,
+  removeProfessor,
   assertProfessor
 };

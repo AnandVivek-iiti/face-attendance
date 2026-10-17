@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, ScanFace } from 'lucide-react';
+import { Camera, CheckCheck, Eye, EyeOff, ScanFace, Sparkles } from 'lucide-react';
+import ThemeSwitcher from '../components/ThemeSwitcher';
 import Button from '../components/ui/Button';
 import { useAuth } from '../context/AuthContext';
 import { getAuthConfig } from '../services/authService';
@@ -50,25 +51,31 @@ const HEADS = [
 ];
 const STATUS = ['ok', 'ok', 'ok', 'warn', 'ok', 'warn', 'ok', 'bad', 'ok'];
 const SCORE = ['0.97', '0.95', '0.98', '0.61', '0.96', '0.58', '0.97', 'none', '0.94'];
-const TONE = { ok: '#3dff3d', warn: '#ffb454', bad: '#ff7b72' };
+const TONE = { ok: 'rgb(var(--ok-rgb))', warn: 'rgb(var(--warn-rgb))', bad: 'rgb(var(--bad-rgb))' };
 
 function ClassroomScan() {
   return (
-    <svg viewBox="0 0 460 320" className="w-full max-w-md" aria-hidden="true">
+    <svg viewBox="0 0 460 320" className="w-full max-w-md drop-shadow-[0_0_28px_rgb(var(--accent-rgb)/0.25)]" aria-hidden="true">
       <defs>
         <linearGradient id="scan-trail" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#00ff00" stopOpacity="0" />
-          <stop offset="1" stopColor="#00ff00" stopOpacity="0.28" />
+          <stop offset="0" style={{ stopColor: 'rgb(var(--accent-rgb))', stopOpacity: 0 }} />
+          <stop offset="1" style={{ stopColor: 'rgb(var(--accent-rgb))', stopOpacity: 0.3 }} />
         </linearGradient>
       </defs>
-      <rect x="0.5" y="0.5" width="459" height="319" fill="rgba(0,255,0,0.03)" stroke="rgba(0,255,0,0.22)" />
+      <rect
+        x="0.5"
+        y="0.5"
+        width="459"
+        height="319"
+        style={{ fill: 'rgb(var(--accent-rgb) / 0.05)', stroke: 'rgb(var(--accent-rgb) / 0.35)' }}
+      />
       {HEADS.map(([x, y], index) => {
         const delay = `${(0.3 + (y / 312) * 2.2 + x / 1500).toFixed(2)}s`;
         const color = TONE[STATUS[index]];
         return (
           <g key={index}>
-            <circle cx={x} cy={y} r="17" fill="#0a5a0a" />
-            <path d={`M${x - 28} ${y + 58} a28 28 0 0 1 56 0 z`} fill="#013b00" />
+            <circle cx={x} cy={y} r="17" style={{ fill: 'rgb(var(--ink-rgb) / 0.22)' }} />
+            <path d={`M${x - 28} ${y + 58} a28 28 0 0 1 56 0 z`} style={{ fill: 'rgb(var(--ink-rgb) / 0.12)' }} />
             <rect
               className="hud-box"
               pathLength="1"
@@ -77,18 +84,16 @@ function ClassroomScan() {
               width="52"
               height="54"
               fill="none"
-              stroke={color}
               strokeWidth="2"
-              style={{ '--d': delay }}
+              style={{ stroke: color, '--d': delay }}
             />
             <text
               className="hud-label"
               x={x - 26}
               y={y + 38}
               fontSize="9"
-              fill={color}
               fontFamily="'JetBrains Mono', monospace"
-              style={{ '--d': delay }}
+              style={{ fill: color, '--d': delay }}
             >
               {SCORE[index]}
             </text>
@@ -97,7 +102,7 @@ function ClassroomScan() {
       })}
       <g className="hud-scan">
         <rect x="1" y="-26" width="458" height="26" fill="url(#scan-trail)" />
-        <rect x="1" y="0" width="458" height="1.5" fill="#00ff00" />
+        <rect x="1" y="0" width="458" height="1.5" style={{ fill: 'rgb(var(--accent-rgb))' }} />
       </g>
     </svg>
   );
@@ -257,27 +262,50 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-screen animate-page-in lg:grid-cols-2">
-      <div className="hidden flex-col justify-center gap-6 border-r border-line bg-black/25 px-14 lg:flex">
-        <ClassroomScan />
-        <BootLog />
-        <div className="max-w-md">
-          <h2 className="font-serif text-xl font-bold text-ink">Attendance from a classroom photograph</h2>
-          <p className="mt-2 text-sm text-muted">
+    <div className="grid min-h-screen animate-page-in lg:grid-cols-[1.1fr_1fr]">
+      <div className="fixed right-4 top-4 z-20">
+        <ThemeSwitcher compact />
+      </div>
+
+      <div className="login-hero hidden flex-col justify-center gap-6 border-r border-line px-14 py-10 lg:flex">
+        <div className="max-w-xl animate-rise">
+          <p className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.22em] text-primary">
+            <Sparkles size={14} aria-hidden="true" />
+            Face Attendance
+          </p>
+          <h2 className="hero-title font-serif text-5xl font-extrabold leading-[1.05] tracking-tight">
+            Attendance from a classroom photograph
+          </h2>
+          <p className="mt-4 max-w-md text-sm text-muted">
             Faces are matched to enrolled students. Anything uncertain is flagged for you to confirm before attendance is saved.
           </p>
         </div>
+        <ClassroomScan />
+        <ul className="stagger flex max-w-md flex-wrap gap-2 text-xs font-semibold text-ink">
+          {[
+            [Camera, 'Capture'],
+            [ScanFace, 'Match'],
+            [CheckCheck, 'Confirm'],
+          ].map(([Icon, text]) => (
+            <li key={text} className="flex items-center gap-2 rounded-full border border-line bg-white/[0.05] px-3 py-1.5">
+              <Icon size={14} aria-hidden="true" className="text-primary" />
+              {text}
+            </li>
+          ))}
+        </ul>
+        <BootLog />
       </div>
 
       <div className="flex items-center justify-center px-6 py-10">
         <div className="w-full max-w-md">
-          <form onSubmit={submit} noValidate className="glass-strong scan-once rounded-panel border border-line p-6 shadow-glass-lg">
+          <div className="login-ring animate-pop">
+          <form onSubmit={submit} noValidate className="stagger glass-strong scan-once rounded-panel border border-line p-7">
             <div className="mb-5 flex items-center gap-2 border-b border-line pb-3 text-sm font-semibold text-ink">
               <ScanFace size={18} className="text-primary" aria-hidden="true" />
               Face Attendance
             </div>
 
-            <h1 className="font-serif text-2xl font-bold text-ink">
+            <h1 className="font-serif text-4xl font-extrabold tracking-tight text-ink">
               <span aria-hidden="true" className="mr-2 text-primary">$</span>
               <Decode text="Sign in" />
             </h1>
@@ -357,6 +385,7 @@ export default function LoginPage() {
               Sign in
             </Button>
           </form>
+          </div>
         </div>
       </div>
     </div>

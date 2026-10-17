@@ -28,4 +28,12 @@ const addProfessor = asyncHandler(async (req, res) =>
   success(res, await courseService.addProfessor(req.body, req.user), { status: 201 })
 );
 
-module.exports = { list, listAll, create, getOne, update, remove, listProfessors, addProfessor };
+const updateProfessor = asyncHandler(async (req, res) =>
+  success(res, await courseService.updateProfessor(req.params.id, req.body, req.user))
+);
+
+const removeProfessor = asyncHandler(async (req, res) =>
+  success(res, await courseService.removeProfessor(req.params.id, req.user))
+);
+
+module.exports = { list, listAll, create, getOne, update, remove, listProfessors, addProfessor, updateProfessor, removeProfessor };

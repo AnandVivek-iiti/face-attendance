@@ -21,5 +21,7 @@ router.delete('/:id', authorizeRole(ROLES.ADMIN), controller.remove);
 
 // Admin provisions a professor. Their password arrives with their first course.
 router.post('/professors', authorizeRole(ROLES.ADMIN), validate({ body: schemas.createProfessor }), controller.addProfessor);
+router.put('/professors/:id', authorizeRole(ROLES.ADMIN), validate({ body: schemas.updateProfessor }), controller.updateProfessor);
+router.delete('/professors/:id', authorizeRole(ROLES.ADMIN), controller.removeProfessor);
 
 module.exports = router;

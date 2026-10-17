@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { isProfileComplete } from '../utils/normalize';
 import {
   BookOpen,
+  CalendarDays,
   Camera,
   History,
   LayoutDashboard,
@@ -14,6 +15,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import ThemeSwitcher from '../components/ThemeSwitcher';
 import { useAuth } from '../context/AuthContext';
 import { ROLES } from '../utils/constants';
 import { initials } from '../utils/format';
@@ -30,7 +32,7 @@ const navByRole = {
   ],
   [ROLES.ADMIN]: [
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/admin/courses', label: 'Admin — courses', icon: BookOpen },
+    { to: '/admin/courses', label: 'Professors', icon: BookOpen },
     { to: '/courses', label: 'Courses', icon: BookOpen },
     { to: '/students', label: 'Students', icon: Users },
     { to: '/attendance/history', label: 'Attendance history', icon: History },
@@ -41,6 +43,19 @@ const navByRole = {
     { to: '/student/profile', label: 'My profile', icon: User },
   ],
 };
+
+const dateFormatter = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+
+// Longest nav path that prefixes the current URL names the current page.
+function pageLabel(items, pathname) {
+  let best = null;
+  items.forEach((item) => {
+    const match = pathname === item.to || pathname.startsWith(`${item.to}/`);
+    if (match && (!best || item.to.length > best.to.length)) best = item;
+  });
+  if (best) return best.label;
+  return pathname.includes('/review') ? 'Review attendance' : 'Workspace';
+}
 
 function NavItems({ items, pathname, onNavigate }) {
   const navRef = useRef(null);
@@ -72,7 +87,7 @@ function NavItems({ items, pathname, onNavigate }) {
   }, [measure]);
 
   return (
-    <nav ref={navRef} aria-label="Main" className="relative flex flex-col gap-0.5">
+    <nav ref={navRef} aria-label="Main" className="relative flex flex-col gap-1">
       <span
         aria-hidden="true"
         className="nav-indicator"
@@ -86,15 +101,15 @@ function NavItems({ items, pathname, onNavigate }) {
           end={to === '/dashboard'}
           onClick={onNavigate}
           className={({ isActive }) =>
-            `group relative z-10 flex items-center gap-2.5 rounded-ctl px-3 py-2 text-sm font-semibold transition-colors duration-200 ${
-              isActive ? 'text-primary' : 'text-ink hover:text-primary'
+            `group relative z-10 flex items-center gap-3 rounded-ctl px-3.5 py-2.5 text-sm font-semibold transition-colors duration-200 ${
+              isActive ? 'text-primary' : 'text-muted hover:text-ink'
             }`
           }
         >
           <Icon
-            size={16}
+            size={17}
             aria-hidden="true"
-            className="transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:translate-x-0.5 group-hover:scale-110"
+            className="transition-transform duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:translate-x-0.5 group-hover:scale-115"
           />
           {label}
         </NavLink>
@@ -106,18 +121,22 @@ function NavItems({ items, pathname, onNavigate }) {
 function Sidebar({ items, user, onSignOut, onNavigate, pathname }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 px-4 py-4">
-        <span className="flex h-8 w-8 items-center justify-center rounded-ctl bg-gradient-to-br from-primary to-green-600 text-primary-ink shadow-glass">
-          <ScanFace size={18} aria-hidden="true" />
+      <div className="flex items-center gap-3 px-5 pb-5 pt-6">
+        <span className="brand-mark flex h-11 w-11 shrink-0 items-center justify-center rounded-panel">
+          <ScanFace size={24} aria-hidden="true" />
         </span>
-        <span className="font-serif text-base font-bold text-ink">Face Attendance</span>
+        <span className="min-w-0 leading-tight">
+          <span className="block truncate font-serif text-base font-extrabold tracking-tight text-ink">Face Attendance</span>
+          <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-primary">Classroom recognition</span>
+        </span>
       </div>
-      <div className="flex-1 px-3">
+      <p className="px-6 pb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-muted">Menu</p>
+      <div className="flex-1 overflow-y-auto px-3">
         <NavItems items={items} pathname={pathname} onNavigate={onNavigate} />
       </div>
-      <div className="border-t border-line p-3">
-        <div className="flex items-center gap-2.5 px-1 pb-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-soft text-xs font-bold text-primary">
+      <div className="space-y-3 border-t border-line p-4">
+        <div className="flex items-center gap-3 rounded-panel border border-line bg-white/[0.04] p-2.5">
+          <span className="avatar-ring flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold text-primary">
             {initials(user.name) || '?'}
           </span>
           <div className="min-w-0">
@@ -125,10 +144,11 @@ function Sidebar({ items, user, onSignOut, onNavigate, pathname }) {
             <p className="text-xs capitalize text-muted">{user.role}</p>
           </div>
         </div>
+        <ThemeSwitcher />
         <button
           type="button"
           onClick={onSignOut}
-          className="group flex w-full items-center gap-2 rounded-ctl px-3 py-2 text-sm font-semibold text-ink transition-colors duration-200 hover:bg-white/10 hover:text-primary"
+          className="group flex w-full items-center gap-2 rounded-ctl px-3 py-2 text-sm font-semibold text-muted transition-colors duration-200 hover:bg-white/10 hover:text-ink active:scale-[0.97]"
         >
           <LogOut
             size={16}
@@ -156,56 +176,79 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen lg:flex">
-      <aside className="hidden w-64 shrink-0 border-r border-line bg-white/[0.04] lg:block">
+      <aside className="sidebar hidden w-64 shrink-0 lg:block">
         <div className="sticky top-0 h-screen">
           <Sidebar items={items} user={user} onSignOut={signOut} pathname={location.pathname} />
         </div>
+        <span aria-hidden="true" className="sidebar-edge" />
       </aside>
 
-      <header className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-white/[0.06] px-4 py-3 lg:hidden">
-        <span className="font-serif text-base font-bold text-ink">Face Attendance</span>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          aria-label="Open menu"
-          className="rounded p-1 text-ink transition hover:bg-white/10"
-        >
-          <Menu size={22} />
-        </button>
-      </header>
-
-      {open && (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <div
-            className="absolute inset-0 bg-scrim/75 animate-fade"
-            onClick={() => setOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="glass-strong absolute inset-y-0 left-0 w-64 border-r border-line animate-drawer">
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              aria-label="Close menu"
-              className="absolute right-2 top-3 z-10 rounded p-1 text-muted transition hover:bg-white/10 hover:text-ink"
-            >
-              <X size={18} />
-            </button>
-            <Sidebar
-              items={items}
-              user={user}
-              onSignOut={signOut}
-              onNavigate={() => setOpen(false)}
-              pathname={location.pathname}
-            />
+      <div className="min-w-0 flex-1">
+        <header className="app-header sticky top-0 z-30 hidden items-center justify-between gap-4 px-10 py-3 lg:flex">
+          <p className="flex items-center gap-2 text-sm font-semibold text-muted">
+            <span>Face Attendance</span>
+            <span aria-hidden="true" className="text-primary">›</span>
+            <span className="text-ink">{pageLabel(items, location.pathname)}</span>
+          </p>
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-2 text-xs font-semibold text-muted">
+              <CalendarDays size={14} aria-hidden="true" className="text-primary" />
+              {dateFormatter.format(new Date())}
+            </span>
+            <ThemeSwitcher compact />
           </div>
-        </div>
-      )}
+        </header>
 
-      <main className="min-w-0 flex-1 px-4 py-6 lg:px-8">
-        <div key={location.pathname} className="animate-page-in">
-          <Outlet />
-        </div>
-      </main>
+        <header className="app-header sticky top-0 z-30 flex items-center justify-between px-4 py-3 lg:hidden">
+          <span className="flex items-center gap-2.5">
+            <span className="brand-mark flex h-8 w-8 items-center justify-center rounded-ctl">
+              <ScanFace size={18} aria-hidden="true" />
+            </span>
+            <span className="font-serif text-base font-extrabold tracking-tight text-ink">Face Attendance</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            aria-label="Open menu"
+            className="rounded p-1.5 text-ink transition hover:bg-white/10 active:scale-90"
+          >
+            <Menu size={22} />
+          </button>
+        </header>
+
+        {open && (
+          <div className="fixed inset-0 z-40 lg:hidden">
+            <div
+              className="absolute inset-0 bg-scrim/75 animate-fade"
+              onClick={() => setOpen(false)}
+              aria-hidden="true"
+            />
+            <div className="glass-strong sidebar absolute inset-y-0 left-0 w-72 border-r border-line animate-drawer">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Close menu"
+                className="absolute right-2 top-3 z-10 rounded p-1 text-muted transition hover:rotate-90 hover:bg-white/10 hover:text-ink"
+              >
+                <X size={18} />
+              </button>
+              <Sidebar
+                items={items}
+                user={user}
+                onSignOut={signOut}
+                onNavigate={() => setOpen(false)}
+                pathname={location.pathname}
+              />
+            </div>
+          </div>
+        )}
+
+        <main className="mx-auto w-full max-w-[1400px] px-4 py-8 lg:px-10 lg:py-10">
+          <div key={location.pathname} className="animate-page-in">
+            <Outlet />
+          </div>
+        </main>
+      </div>
     </div>
   );
 }

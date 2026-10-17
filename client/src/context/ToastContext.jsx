@@ -45,17 +45,18 @@ export function ToastProvider({ children }) {
             <div
               key={toast.id}
               role={isError ? 'alert' : 'status'}
-              className={`pointer-events-auto relative flex items-start gap-2 overflow-hidden rounded-ctl border px-3 py-2 text-sm shadow-glass ${
+              className={`toast pointer-events-auto relative flex items-start gap-2.5 overflow-hidden rounded-ctl border px-3.5 py-3 text-sm ${
                 toast.leaving ? 'toast-out' : 'animate-toast'
-              } ${
-                isError
-                  ? 'border-bad-line bg-[rgba(60,14,12,0.9)] text-bad'
-                  : 'border-ok-line bg-[rgba(1,59,0,0.94)] text-ok'
-              }`}
+              } ${isError ? 'toast-bad' : 'toast-ok'}`}
             >
-              <Icon size={16} className="mt-0.5 shrink-0" aria-hidden="true" />
-              <p className="flex-1">{toast.message}</p>
-              <button type="button" onClick={() => dismiss(toast.id)} aria-label="Dismiss message">
+              <Icon size={18} className="toast-icon mt-0.5 shrink-0" aria-hidden="true" />
+              <p className="flex-1 font-medium text-ink">{toast.message}</p>
+              <button
+                type="button"
+                onClick={() => dismiss(toast.id)}
+                aria-label="Dismiss message"
+                className="rounded p-0.5 text-muted transition hover:rotate-90 hover:text-ink"
+              >
                 <X size={14} />
               </button>
               <span aria-hidden="true" className="toast-timer" style={{ animationDuration: `${toast.duration}ms` }} />

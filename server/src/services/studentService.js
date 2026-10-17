@@ -410,6 +410,68 @@ const appendEmbedding = async (student, embedding, model) => {
   return student;
 };
 
+/**
+ * Persist a small face thumbnail for each just-enrolled student, cropped from
+ * the classroom photo the face was detected in. One ML call per source image,
+ * so enrolling a whole page does not decode the photo once per face.
+ *
+ * Best effort by design: enrollment has already succeeded, so a cropper hiccup
+ * leaves a student without a thumbnail rather than failing the assignment.
+ */
+const storeFaceThumbnails = async (session, entries) => {
+  if (!entries || entries.length === 0) return;
+  const imageById = new Map((session.uploadedImages || []).map((image) => [String(image._id), image]));
+  const groups = new Map();
+  for (const entry of entries) {
+    const image = imageById.get(String(entry.face.imageId));
+    if (!image || !Array.isArray(entry.face.bbox) || entry.face.bbox.length !== 4) continue;
+    const key = String(image._id);
+    if (!groups.has(key)) groups.set(key, { image, entries: [] });
+    groups.get(key).entries.push(entry);
+  }
+
+  for (const { image, entries: group } of groups.values()) {
+    let buffer;
+    try {
+      buffer = await storageService.readFile(image.path);
+    } catch {
+      continue;
+    }
+    let crops;
+    try {
+      crops = await mlClient.cropFaces({
+        buffer,
+        filename: image.filename,
+        mimeType: image.mimeType,
+        boxes: group.map((entry) => entry.face.bbox)
+      });
+    } catch {
+      continue;
+    }
+    for (let index = 0; index < group.length; index += 1) {
+      const encoded = crops[index];
+      if (!encoded) continue;
+      const { student } = group[index];
+      try {
+        const stored = await storageService.writeBuffer(
+          Buffer.from(encoded, 'base64'),
+          'registered-faces',
+          `${student._id}-`
+        );
+        const previous = student.registeredImage;
+        await Student.updateOne({ _id: student._id }, { $set: { registeredImage: stored.relativePath } });
+        student.registeredImage = stored.relativePath;
+        // Only ever delete a thumbnail we wrote — never a profile/request photo.
+        if (previous && previous !== stored.relativePath && previous.startsWith('registered-faces/')) {
+          await storageService.removeStored(previous);
+        }
+      } catch {
+        // Thumbnail is a convenience; the student stays enrolled without one.
+      }
+    }
+  }
+};
+
 module.exports = {
   getByRef,
   list,
@@ -421,6 +483,7 @@ module.exports = {
   generateEmbedding,
   listEnrolledForCourse,
   appendEmbedding,
+  storeFaceThumbnails,
   buildProfile,
   getProfile,
   getAttendance,

@@ -187,7 +187,7 @@ export default function HistoryPage() {
                   )}
                 </tr>
               </thead>
-              <tbody className="stagger">
+              <tbody key={`${course}|${status}`} className="stagger">
                 {rows.map((item) => (
                   <tr key={item.id} className="border-b border-line transition-colors duration-150 last:border-b-0 hover:bg-white/[0.06]">
                     <td className="px-4 py-3 font-semibold text-ink">

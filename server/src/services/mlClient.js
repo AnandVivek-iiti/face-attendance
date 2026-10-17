@@ -43,6 +43,10 @@ const analysisSchema = z.object({
   summary: summarySchema.optional()
 });
 
+const cropResponseSchema = z.object({
+  crops: z.array(z.string().nullable())
+});
+
 const embeddingSchema = z.object({
   embedding: z.array(z.number().finite()).min(1),
   embeddingModel: z.string().min(1).optional(),
@@ -114,6 +118,20 @@ const parse = (schema, body) => {
   return result.data;
 };
 
+/**
+ * Crop several faces from one image in a single call. The ML service decodes the
+ * photo once and returns one base64 JPEG per box (null for a bad box).
+ *
+ * @param {Array<number[]>} boxes - [x1, y1, x2, y2] in the image's pixels
+ */
+const cropFaces = async ({ buffer, filename, mimeType, boxes }) => {
+  const form = new FormData();
+  form.append('image', imageBlob(buffer, filename, mimeType), filename);
+  form.append('boxes', JSON.stringify(boxes));
+  const body = await post(ML_PATHS.CROP, form);
+  return parse(cropResponseSchema, body).crops;
+};
+
 const generateEmbedding = async ({ buffer, filename, mimeType }) => {
   const form = new FormData();
   form.append('image', imageBlob(buffer, filename, mimeType), filename);
@@ -142,4 +160,4 @@ const analyzeClassroom = async ({ images, gallery, embeddingModel, includeEmbedd
   return parse(analysisSchema, body);
 };
 
-module.exports = { generateEmbedding, analyzeClassroom };
+module.exports = { generateEmbedding, analyzeClassroom, cropFaces };

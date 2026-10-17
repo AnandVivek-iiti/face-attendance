@@ -34,7 +34,11 @@ const ML_DECISION = Object.freeze({
   UNKNOWN: 'unknown'
 });
 
-const ML_PATHS = Object.freeze({ EMBEDDING: '/generate-embedding', ANALYZE: '/analyze-classroom' });
+const ML_PATHS = Object.freeze({
+  EMBEDDING: '/generate-embedding',
+  ANALYZE: '/analyze-classroom',
+  CROP: '/crop-face'
+});
 
 const IMAGE_MIME_TYPES = Object.freeze({
   'image/jpeg': '.jpg',
@@ -72,6 +76,8 @@ const AUDIT_ACTIONS = Object.freeze({
   COURSE_UPDATED: 'course_updated',
   COURSE_REMOVED: 'course_removed',
   PROFESSOR_ADDED: 'professor_added',
+  PROFESSOR_UPDATED: 'professor_updated',
+  PROFESSOR_REMOVED: 'professor_removed',
   DEPARTMENT_CREATED: 'department_created',
   DEPARTMENT_REMOVED: 'department_removed'
 });

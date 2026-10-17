@@ -18,6 +18,8 @@ import {
   getProfessors,
   updateCourse,
   addProfessor,
+  updateProfessor,
+  deleteProfessor,
   getDepartments,
   createDepartment,
   deleteDepartment,
@@ -160,11 +162,11 @@ export default function AdminCoursesPage() {
       </Card>
 
       <Card className="mt-5" title="Professors">
-        <ProfessorList onCreated={reloadProfessors} />
+        <ProfessorList professors={professors} onCreated={reloadProfessors} />
       </Card>
 
       <Card className="mt-5" title="Departments">
-        <DepartmentList departments={departments} onChanged={() => {}} />
+        <DepartmentList departments={departments} onChanged={() => { }} />
       </Card>
 
       <Modal
@@ -198,26 +200,39 @@ export default function AdminCoursesPage() {
   );
 }
 
-function ProfessorList({ onCreated }) {
+function ProfessorList({ professors, onCreated }) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', email: '' });
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', email: '', department: '' });
   const [busy, setBusy] = useState(false);
-  // The server returns a one-time password only in the create response.
   const [created, setCreated] = useState(null);
 
   const close = () => {
     setOpen(false);
+    setEditing(null);
     setCreated(null);
+  };
+
+  const openEdit = (prof) => {
+    setForm({ name: prof.name, email: prof.email, department: prof.department || '' });
+    setEditing(prof);
+    setOpen(true);
   };
 
   const submit = async () => {
     setBusy(true);
     try {
-      const result = await addProfessor(form);
-      toast.success(`${form.name} added.`);
-      setCreated({ name: form.name, email: form.email, password: result?.temporaryPassword ?? '' });
-      setForm({ name: '', email: '' });
+      if (editing) {
+        await updateProfessor(editing.id, { name: form.name, department: form.department });
+        toast.success('Professor updated.');
+      } else {
+        const result = await addProfessor(form);
+        setCreated({ name: form.name, email: form.email, password: result?.temporaryPassword ?? '' });
+        toast.success(`${form.name} added.`);
+      }
+      setForm({ name: '', email: '', department: '' });
+      setEditing(null);
       onCreated();
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -226,12 +241,72 @@ function ProfessorList({ onCreated }) {
     }
   };
 
+  const remove = async (prof) => {
+    if (!window.confirm(`Remove ${prof.name}?`)) return;
+    try {
+      await deleteProfessor(prof.id);
+      toast.success(`${prof.name} removed.`);
+      onCreated();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    }
+  };
+
   return (
     <div>
-      <Button size="sm" icon={UserPlus} onClick={() => setOpen(true)}>
-        Add professor
-      </Button>
-      <Modal open={open} title={created ? 'Professor added' : 'Add professor'} onClose={close}>
+      <div className="mb-3">
+        <Button size="sm" icon={UserPlus} onClick={() => { setForm({ name: '', email: '', department: '' }); setEditing(null); setOpen(true); }}>
+          Add professor
+        </Button>
+      </div>
+      {professors.length === 0 ? (
+        <EmptyState
+          title="No professors yet"
+          description="Add a professor to get started."
+        />
+      ) : (
+        <div className="stagger grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {professors.map((prof) => (
+            <Card key={prof.id}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="font-serif text-lg font-semibold text-ink">
+                    {prof.name}
+                  </h3>
+                  <p className="mt-1 break-all text-sm text-muted">
+                    {prof.email}
+                  </p>
+                </div>
+
+                <Badge tone="neutral">
+                  {prof.department || 'Unassigned'}
+                </Badge>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={Pencil}
+                  onClick={() => openEdit(prof)}
+                >
+                  Edit
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={Trash2}
+                  onClick={() => remove(prof)}
+                >
+                  Delete
+                </Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+      <Modal open={open} title={created ? 'Professor added' : editing ? 'Edit professor' : 'Add professor'} onClose={close}>
         {created ? (
           <div className="space-y-3">
             <p className="text-sm text-ink">
@@ -251,12 +326,17 @@ function ProfessorList({ onCreated }) {
           <div className="space-y-3">
             <TextInput label="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
             <TextInput label="Email (@iiti.ac.in)" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
-            <p className="text-xs text-muted">
-              A one-time password is generated and shown to you after the professor is added.
-            </p>
+            <TextInput label="Department" value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} placeholder="ME" />
+            {!editing && (
+              <p className="text-xs text-muted">
+                A one-time password is generated and shown to you after the professor is added.
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button onClick={close}>Cancel</Button>
-              <Button variant="primary" onClick={submit} loading={busy}>Add professor</Button>
+              <Button variant="primary" onClick={submit} loading={busy}>
+                {editing ? 'Save' : 'Add professor'}
+              </Button>
             </div>
           </div>
         )}

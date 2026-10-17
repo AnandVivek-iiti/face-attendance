@@ -18,7 +18,7 @@ export default function AdminDashboard({ user }) {
     return (
       <>
         {header}
-        <Spinner label="Loading dashboard" />
+        <Spinner label="Loading dashboard" variant="dashboard" />
       </>
     );
   }

@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Check, X } from 'lucide-react';
 import Badge from '../../components/ui/Badge';
 import Card from '../../components/ui/Card';
+import CountUp from '../../components/ui/CountUp';
 import EmptyState from '../../components/ui/EmptyState';
 import ErrorState from '../../components/ui/ErrorState';
 import PageHeader from '../../components/ui/PageHeader';
@@ -20,7 +21,7 @@ export default function StudentDashboard({ user }) {
     return (
       <>
         {header}
-        <Spinner label="Loading your attendance" />
+        <Spinner label="Loading your attendance" variant="dashboard" />
       </>
     );
   }
@@ -56,7 +57,9 @@ export default function StudentDashboard({ user }) {
       {header}
       <div className="grid gap-6 lg:grid-cols-3">
         <Card title="Overall attendance" className="lg:col-span-1">
-          <p className="font-serif text-5xl font-bold tabular-nums text-ink">{percent(overall)}</p>
+          <p className="stat-value font-serif !text-6xl">
+            <CountUp value={percent(overall)} />
+          </p>
           <p className="mt-1 text-sm text-muted">
             Present in {summary.present} of {summary.total} classes
           </p>
