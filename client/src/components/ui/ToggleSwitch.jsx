@@ -15,8 +15,8 @@ export default function ToggleSwitch({ checked, onChange, label, disabled }) {
         aria-hidden="true"
       >
         <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full shadow transition-all duration-200 ease-out ${
-            checked ? 'left-[18px] bg-primary-ink' : 'left-0.5 bg-white'
+          className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full shadow transition-[transform,background-color] duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+            checked ? 'translate-x-4 bg-primary-ink' : 'translate-x-0 bg-white'
           }`}
         />
       </span>

@@ -17,6 +17,17 @@ export function AuthProvider({ children }) {
     return result.user;
   }, []);
 
+  // Completes the Google redirect: the server hands the browser a bare JWT.
+  // Persist it first so the http interceptor attaches it, then resolve the user.
+  const signInWithToken = useCallback(async (token) => {
+    saveAuth({ token });
+    const user = await authService.me();
+    const result = { token, user };
+    saveAuth(result);
+    setAuth(result);
+    return user;
+  }, []);
+
   const signOut = useCallback(() => {
     clearAuth();
     setAuth(null);
@@ -47,8 +58,15 @@ export function AuthProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user: auth?.user ?? null, isAuthenticated: Boolean(auth?.user), signIn, signOut, refreshUser }),
-    [auth, signIn, signOut, refreshUser],
+    () => ({
+      user: auth?.user ?? null,
+      isAuthenticated: Boolean(auth?.user),
+      signIn,
+      signInWithToken,
+      signOut,
+      refreshUser,
+    }),
+    [auth, signIn, signInWithToken, signOut, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

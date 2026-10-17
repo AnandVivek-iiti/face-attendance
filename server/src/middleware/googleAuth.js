@@ -1,86 +1,137 @@
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const jwt = require('jsonwebtoken');
 const env = require('../config/env');
 const User = require('../models/User');
-const AppError = require('../utils/AppError');
+const authService = require('../services/authService');
 const { IIIT_EMAIL_DOMAIN, ROLES } = require('../config/constants');
 
-const googleClientID = process.env.GOOGLE_CLIENT_ID;
-const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
-const googleCallbackURL = process.env.GOOGLE_CALLBACK_URL || 'http://localhost:5000/auth/google/callback';
+const { googleClientId, googleClientSecret, googleCallbackUrl } = env;
+const googleEnabled = Boolean(googleClientId && googleClientSecret);
 
-let googleEnabled = false;
-try {
-  if (googleClientID && googleClientSecret) {
-    googleEnabled = true;
+// Where the browser should land after the Google round-trip. Reused for both the
+// success token hand-off and the failure redirect.
+const clientOrigin = env.clientOrigins[0] || 'http://localhost:5173';
+const loginRedirect = (params) =>
+  `${clientOrigin}/login?${new URLSearchParams(params).toString()}`;
+
+// Errors the user can act on are shown as-is; anything else is logged and the
+// browser only sees a generic code (never internal error text).
+class GoogleLoginError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'GoogleLoginError';
+    this.code = code;
   }
-} catch {}
+}
 
+let initialized = false;
+
+// The strategy only ever runs when both credentials are present, and registering
+// it more than once (multiple createApp() calls in tests) is a no-op.
 const initializeGooglePassport = () => {
-  if (googleEnabled) {
-    passport.use(
-      new GoogleStrategy(
-        {
-          clientID: googleClientID,
-          clientSecret: googleClientSecret,
-          callbackURL: googleCallbackURL,
-          passReqToCallback: true
-        },
-        async (req, accessToken, refreshToken, profile, done) => {
-          try {
-            const googleId = profile.id;
-            const email = String(profile.emails?.[0]?.value || '').trim().toLowerCase();
-            const displayName = profile.displayName || '';
+  if (!googleEnabled || initialized) return;
+  initialized = true;
 
-            if (!email) {
-              return done(new Error('Google email not provided'), false);
-            }
+  passport.use(
+    new GoogleStrategy(
+      {
+        clientID: googleClientId,
+        clientSecret: googleClientSecret,
+        callbackURL: googleCallbackUrl,
+        passReqToCallback: true
+      },
+      async (req, accessToken, refreshToken, profile, done) => {
+        try {
+          const primary = profile.emails?.[0];
+          const email = String(primary?.value || '').trim().toLowerCase();
+          const displayName = profile.displayName || '';
 
-            // Check if user already exists by email
-            let user = await User.findOne({ email }).select('+passwordHash').lean();
+          if (!email) throw new GoogleLoginError('google_no_email', 'Google account did not share an email address');
 
-            if (user) {
-              // User exists - issue token
-              const token = jwt.sign(
-                { role: user.role, sub: user._id },
-                env.jwtSecret,
-                { expiresIn: env.jwtExpiresIn || '8h' }
-              );
-              return done(null, { user, token });
-            }
-
-            // New user - auto-provision as student with @iiti.ac.in email domain check
-            const isIiti = email.endsWith(`@${IIIT_EMAIL_DOMAIN}`);
-
-            const baseName = email.split('@')[0];
-
-            user = await User.create({
-              name: displayName || baseName,
-              email,
-              passwordHash: undefined, // No local password; Google is the auth method
-              role: isIiti ? ROLES.STUDENT : ROLES.STUDENT,
-              studentId: undefined
-            });
-
-            const token = jwt.sign(
-              { role: user.role, sub: user._id },
-              env.jwtSecret,
-              { expiresIn: env.jwtExpiresIn || '8h' }
-            );
-
-            done(null, { user, token });
-          } catch (error) {
-            done(error, false);
+          // An unverified address proves nothing about who owns it; accepting it
+          // would let someone sign in as any @iiti.ac.in user.
+          const verified = primary?.verified ?? profile._json?.email_verified;
+          if (verified !== true && verified !== 'true') {
+            throw new GoogleLoginError('google_unverified_email', 'Your Google email address is not verified');
           }
+
+          // Only the institutional domain may hold an account. Professors and
+          // admins are provisioned by an admin, so an unknown address becomes a
+          // student - exactly like the password first-login path.
+          if (!authService.isIitiEmail(email)) {
+            throw new GoogleLoginError('google_wrong_domain', `Use your @${IIIT_EMAIL_DOMAIN} Google account`);
+          }
+
+          let user = await User.findOne({ email });
+          if (!user) {
+            try {
+              user = await User.create({
+                name: displayName || email.split('@')[0],
+                email,
+                role: ROLES.STUDENT
+              });
+            } catch (error) {
+              if (error && error.code !== 11000) throw error;
+              user = await User.findOne({ email });
+            }
+          }
+          if (!user) throw new GoogleLoginError('google_failed', 'Could not sign you in');
+
+          const token = authService.issueToken(user);
+          return done(null, { token, user: user.toJSON() });
+        } catch (error) {
+          return done(error);
         }
-      )
-    );
-  }
+      }
+    )
+  );
 };
 
-const authenticateGoogle = () => passport.authenticate('google', { scope: ['profile', 'email'] });
+// Kicks off the redirect to Google. If it is not configured, send the user back
+// to the login page with a readable error instead of a dead route.
+const authenticateGoogle = (req, res, next) =>
+  googleEnabled
+    ? passport.authenticate('google', {
+        scope: ['profile', 'email'],
+        session: false,
+        // Hint only (the server still enforces the domain on the way back).
+        hd: IIIT_EMAIL_DOMAIN,
+        prompt: 'select_account'
+      })(req, res, next)
+    : res.redirect(loginRedirect({ error: 'google_not_configured' }));
 
-const googleCallbackHandler = () => passport.authenticate('google', { session: false });
+// Uses the custom-callback form so a failure becomes a redirect back to the
+// login page. With only failureRedirect, an error thrown by the strategy was
+// passed to the error handler and the browser got a raw JSON 500.
+const authenticateGoogleCallback = (req, res, next) => {
+  if (!googleEnabled) return res.redirect(loginRedirect({ error: 'google_not_configured' }));
+  return passport.authenticate('google', { session: false }, (error, result) => {
+    if (error) {
+      if (error instanceof GoogleLoginError) return res.redirect(loginRedirect({ error: error.code }));
+      console.error('Google sign-in failed', error.message);
+      return res.redirect(loginRedirect({ error: 'google_failed' }));
+    }
+    if (!result) return res.redirect(loginRedirect({ error: 'google_failed' }));
+    req.user = result;
+    return next();
+  })(req, res, next);
+};
 
-module.exports = { initializeGooglePassport, authenticateGoogle, googleCallbackHandler, googleEnabled };
+// Runs after a successful callback: hand the JWT to the client, which exchanges
+// it for the user via GET /api/auth/me.
+const googleCallback = (req, res) => {
+  const token = req.user?.token;
+  if (!token) return res.redirect(loginRedirect({ error: 'google_failed' }));
+  // The token travels in the URL, so make sure nothing keeps a copy of it.
+  res.set('Cache-Control', 'no-store');
+  res.set('Referrer-Policy', 'no-referrer');
+  return res.redirect(loginRedirect({ token }));
+};
+
+module.exports = {
+  initializeGooglePassport,
+  authenticateGoogle,
+  authenticateGoogleCallback,
+  googleCallback,
+  googleEnabled
+};

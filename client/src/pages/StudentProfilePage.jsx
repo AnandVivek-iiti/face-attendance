@@ -10,7 +10,7 @@ import PageHeader from '../components/ui/PageHeader';
 import { useAuth } from '../context/AuthContext';
 import { useAsync } from '../hooks/useAsync';
 import { useToast } from '../context/ToastContext';
-import { getCourses, getDepartments } from '../services/courseService';
+import { getAvailableCourses, getDepartments } from '../services/courseService';
 import { buildProfile, getProfile } from '../services/studentProfileService';
 
 const STEPS = [
@@ -104,7 +104,7 @@ export default function StudentProfilePage() {
   const [result, setResult] = useState(null);
   const fileRef = useRef(null);
 
-  const { data: coursesData, error: coursesError, reload: reloadCourses } = useAsync(getCourses, [], {});
+  const { data: coursesData, error: coursesError, reload: reloadCourses } = useAsync(getAvailableCourses, [], {});
   const { data: departmentsData } = useAsync(getDepartments, [], {});
   const courses = coursesData ?? [];
   const departments = departmentsData ?? [];

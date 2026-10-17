@@ -75,9 +75,14 @@ export function isProfileComplete(user) {
 
 export function normalizeStudent(raw = {}) {
   const rollNumber = raw.rollNumber ?? raw.studentId ?? '';
-  const faceImages = (raw.faceImages ?? raw.faces ?? [])
+  let faceImages = (raw.faceImages ?? raw.faces ?? [])
     .map((item) => (typeof item === 'string' ? { url: item } : item))
     .map((item) => ({ id: idOf(item) ?? item.url, url: assetUrl(item.url ?? item.path) }));
+  // The server stores a single `registeredImage` relative path (served from
+  // /api/files), not an array, so synthesize one entry when no array is sent.
+  if (!faceImages.length && raw.registeredImage) {
+    faceImages = [{ id: 'registered', url: assetUrl(`/api/files/${raw.registeredImage}`) }];
+  }
   return {
     id: idOf(raw) ?? rollNumber,
     studentId: raw.studentId ?? rollNumber,
@@ -85,11 +90,14 @@ export function normalizeStudent(raw = {}) {
     name: raw.name ?? raw.fullName ?? '',
     email: raw.email ?? '',
     department: raw.department ?? '',
+    semester: raw.semester ?? null,
+    section: raw.section ?? '',
     year: raw.year ?? raw.batch ?? '',
     faceImages,
     faceCount: raw.faceCount ?? raw.faceImageCount ?? faceImages.length,
-    hasEmbedding: raw.hasEmbedding ?? raw.embeddingReady ?? null,
+    hasEmbedding: raw.hasEmbedding ?? raw.hasFaceEmbedding ?? raw.embeddingReady ?? null,
     autoEnrolled: Boolean(raw.autoEnrolled),
+    active: raw.active ?? true,
   };
 }
 
@@ -102,7 +110,10 @@ export function normalizeCourse(raw = {}) {
     department: raw.department ?? '',
     semester: raw.semester ?? null,
     section: raw.section ?? '',
+    room: raw.room ?? '',
+    professorId: raw.professorId ?? raw.professor?.id ?? '',
     professorName: raw.professor?.name ?? raw.professorName ?? '',
+    professorEmail: raw.professor?.email ?? raw.professorEmail ?? '',
     studentCount: raw.studentCount ?? raw.enrolledCount ?? students.length,
     students,
     rollNumberPattern: raw.rollNumberPattern
@@ -225,7 +236,11 @@ export function normalizeHistoryItem(raw = {}) {
   const status = raw.status ?? '';
   const own = raw.attendanceStatus ?? raw.myStatus ?? raw.record?.status ?? (['present', 'absent'].includes(status) ? status : null);
   const reviewed = raw.reviewed ?? raw.reviewedCount ?? null;
-  const total = raw.total ?? raw.enrolled ?? (raw.present ?? 0) + (raw.absent ?? 0);
+  const total =
+    raw.total ??
+    raw.totalStudents ??
+    raw.enrolled ??
+    (raw.present ?? raw.presentCount ?? 0) + (raw.absent ?? raw.absentCount ?? 0);
   return {
     id: raw.sessionId ?? idOf(raw),
     course: courseRef(raw.course ?? raw.courseId),

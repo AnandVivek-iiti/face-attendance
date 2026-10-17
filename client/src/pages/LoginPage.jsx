@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, ScanFace } from 'lucide-react';
 import Button from '../components/ui/Button';
 import { useAuth } from '../context/AuthContext';
+import { getAuthConfig } from '../services/authService';
 import { getErrorMessage } from '../utils/errors';
 
 const prefersReducedMotion = () =>
@@ -149,8 +150,31 @@ function TermField({ label, trailing, ...rest }) {
   );
 }
 
+function GoogleIcon() {
+  return (
+    <svg width={18} height={18} viewBox="0 0 48 48" aria-hidden="true">
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
+  );
+}
+
 export default function LoginPage() {
-  const { isAuthenticated, user, signIn } = useAuth();
+  const { isAuthenticated, user, signIn, signInWithToken } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -159,9 +183,52 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(0);
   const [error, setError] = useState(null);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
   const timer = useRef(null);
 
   useEffect(() => () => clearTimeout(timer.current), []);
+
+  useEffect(() => {
+    let active = true;
+    getAuthConfig().then((config) => {
+      if (active) setGoogleEnabled(Boolean(config?.googleEnabled));
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Handles the return leg of the Google round-trip: the server redirects back
+  // with ?token=<jwt> on success or ?error=... on failure.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const errorParam = params.get('error');
+    const tokenParam = params.get('token');
+    if (!errorParam && !tokenParam) return;
+    window.history.replaceState({}, '', window.location.pathname);
+
+    if (errorParam) {
+      setError(
+        errorParam === 'google_not_configured'
+          ? 'Google sign-in is not configured on this server.'
+          : 'Google sign-in failed. Please try again or use your email and password.',
+      );
+      return;
+    }
+
+    setBusy(true);
+    setStage(1);
+    signInWithToken(tokenParam)
+      .then((signedIn) => {
+        const needsSetup = signedIn?.role === 'student' && !signedIn?.profileComplete;
+        navigate(needsSetup ? '/student/profile' : '/dashboard', { replace: true });
+      })
+      .catch((err) => {
+        setError(getErrorMessage(err));
+        setStage(0);
+        setBusy(false);
+      });
+  }, [navigate, signInWithToken]);
 
   if (isAuthenticated) {
     const needsSetup = user?.role === 'student' && !user?.profileComplete;
@@ -244,28 +311,22 @@ export default function LoginPage() {
                   </button>
                 }
               />
-              {/* Google Sign In button - shown when Google OAuth is configured */}
-{import.meta.env.VITE_GOOGLE_CLIENT_ID && (
-                <Button
-                  type="button"
-                  onClick={() => window.location.href = '/api/auth/google'}
-                  variant="ghost"
-                  size="lg"
-                  className="w-full justify-center rounded-lg px-8 py-4 flex items-center gap-2"
-                >
-                  <svg
-                    width={24}
-                    height={24}
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path d="M22.22 11.037c-.774-3.574-3.016-5.57-6.163-5.57-4.014 0-5.566 2.312-6.147 3.03-.276.31-.412.667-.412 1.05 0 2.003 1.592 3.138 3.11 3.134h1.175c.775 0 1.226-.368 1.38-.912.088-.374.06-1.017-.01-1.353-.654-.318-1.484-1.283-1.484-1.283-.573-.195-.934-.02-1.193.16-.26.185.412-.39.412-.69 0 1.038.338 1.3 1.017.33.329.51 1.06.51 2.238 0 1.339-.54 2.028-1.464 2.695-.464.308-.8-.13-1.06-.13-.195 0-.33.08-.412.21-.06.11-.21.13-.31.11-.673 0-1.15-.065-1.423-.21-.235-.13-.54-.26-.67-.26-.15 0-.24.06-.27.11-.04.06-.06.16-.06.31 0 1.19.51 2.33 1.517 3.076-.01.31-.03.53-.03.656 0 2.317 1.563 3.31 3.284 3.86-1.355.66-2.39-.23-2.73-.86-.4.71-.69-1.39-.69-1.62 0-.29.06-.41.06-.45.02-.05.08-.1-.1-.1.25 0 .5.16.5.5.35 0 .65-.1.88-.23-.43.29-.6.81-.55-.98-.11-.35-.27-.56-.32-.65-.08-.13-.26-.21-.41-.26-.22 0-.35.1-.41.26l-.037-.322c-.137-.55-.6-1.03-1.193-1.03-1.12 0-1.528.558-1.528 1.655 0 1.235.7 2.33 1.66 3.164.71.6 1.608.96 2.55.96s1.83 0 2.548-.59c.374-.352.52-1.042.52-2.015 0-1.317-.735-2.395-2.064-2.887zM7.694 11.037c.774 3.574 3.016 5.57 6.163 5.57 4.014 0 5.566-2.312 6.147-3.03.276-.31.412-.667.412-1.05 0-2.003-1.592-3.138-3.11-3.134h-1.175c-.775 0-1.226.368-1.38.912-.088.374-.06 1.017.01 1.353.654.318 1.484 1.283 1.484 1.283.573.195.934.02 1.193-.16.26-.185.412-.39.412-.69 0-1.038-.338-1.3-1.017-.33-.329-.51-1.06-.51-2.238 0-1.339.54-2.028 1.464-2.695.464-.308.8.13 1.06.13.195 0 .33-.08.412-.21.06-.11.21-.13.31-.11.673 0 1.15.065 1.423.21.235.13.54.26.67.26.15 0 .24-.06.27-.11.04-.06.06-.16.06-.31 0-1.19-.51-2.33-1.517-3.076.01-.31.03-.53.03-.656 0-2.317-1.563-3.31-3.284-3.86 1.355-.66 2.39.23 2.73.86.4.71.69 1.39.69 1.62 0 .29-.06.41-.06.45-.02.05-.08.1-.1.1-.25 0-.5-.16-.5-.5-.35 0-.65.1-.88.23-.43.29-.6.81-.55.98.11.35.27.56.32.65.08.13.26.21.41.26.22 0 .35-.1.41-.26l.037-.322c.137-.55.6-1.03 1.193-1.03 1.12 0 1.528-.558 1.528-1.655 0-1.235-.7-2.33-1.66-3.164-.71-.6-1.608-.96-2.55-.96s-1.83 0-2.548.59c-.374.352-.52 1.042-.52 2.015 0 1.317.735 2.395 2.064 2.887zM12 4.117a.88.88 0 0 1 .52 1.555l-.05.283a.88.88 0 0 1-.6.575h-1.85a.88.88 0 0 1-.64-.575l-.05-.283a.88.88 0 0 1 .52-1.555V4.117zm0 11.883a.88.88 0 0 1 .52 1.555l-.05.283a.88.88 0 0 1-.6.575h-1.85a.88.88 0 0 1-.64-.575l-.05-.283a.88.88 0 0 1 .52-1.555v-3.558l.05-.283a.88.88 0 0 1 .64.575h1.85a.88.88 0 0 1 .64-.575l.05.283z" />
-                  </svg>
-                  Google
-                </Button>
-              )}
             </div>
+
+            {googleEnabled && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="lg"
+                onClick={() => {
+                  window.location.href = '/api/auth/google';
+                }}
+                className="mt-3 w-full justify-center gap-2"
+              >
+                <GoogleIcon />
+                Continue with Google
+              </Button>
+            )}
 
             {/* Fixed height: status text changes never move the button. */}
             <div className="mt-4 h-[4.25rem] text-xs leading-5" role="status" aria-live="polite">

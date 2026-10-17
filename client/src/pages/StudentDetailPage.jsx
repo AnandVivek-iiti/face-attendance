@@ -172,9 +172,9 @@ export default function StudentDetailPage() {
                 files={files}
                 onChange={setFiles}
                 disabled={uploading}
-                heading="Drag clear face photographs here"
+                heading="Drag a clear face photograph here"
                 noun="photo"
-                maxFiles={8}
+                maxFiles={1}
               />
               {uploading && <ProgressBar value={progress} label="Upload progress" />}
               <div className="flex flex-wrap gap-2">

@@ -24,7 +24,7 @@ export default function ProfilePage() {
           <Item label="Name" value={user.name} />
           <Item label="Email" value={user.email} />
           <Item label="Role" value={user.role} />
-          <Item label="Roll number" value={user.studentId} />
+          <Item label="Roll number" value={user.profile?.rollNumber} />
           <Item label="Department" value={user.department} />
         </dl>
         <Button className="mt-4" icon={LogOut} onClick={signOut}>

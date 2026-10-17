@@ -6,7 +6,7 @@ import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
-import { SearchInput, TextInput } from '../components/ui/Field';
+import { SearchInput, Select, TextInput } from '../components/ui/Field';
 import Modal from '../components/ui/Modal';
 import PageHeader from '../components/ui/PageHeader';
 import Spinner from '../components/ui/Spinner';
@@ -17,24 +17,34 @@ import { createStudent, getStudents } from '../services/studentService';
 import { ROLES, STUDENT_ID_PATTERN } from '../utils/constants';
 import { getErrorMessage } from '../utils/errors';
 
+const EMPTY_STUDENT = { name: '', rollNumber: '', department: '', semester: '', section: '' };
+
 function NewStudentDialog({ open, onClose, onCreated }) {
   const toast = useToast();
-  const [values, setValues] = useState({ name: '', rollNumber: '', email: '' });
+  const [values, setValues] = useState(EMPTY_STUDENT);
   const [busy, setBusy] = useState(false);
   const change = (key) => (event) => setValues((current) => ({ ...current, [key]: event.target.value }));
   const idError = values.rollNumber.trim() && !STUDENT_ID_PATTERN.test(values.rollNumber.trim()) ? 'Use letters, numbers, dots, hyphens or underscores, up to 64 characters.' : undefined;
+  const ready =
+    values.name.trim() && values.rollNumber.trim() && values.department.trim() && values.semester && values.section.trim() && !idError;
 
   const submit = async (event) => {
     event.preventDefault();
     setBusy(true);
     try {
+      // The server keys students on studentId + rollNumber; the admin form uses
+      // the roll number for both.
+      const rollNumber = values.rollNumber.trim();
       const student = await createStudent({
+        studentId: rollNumber,
+        rollNumber,
         name: values.name.trim(),
-        rollNumber: values.rollNumber.trim(),
-        ...(values.email.trim() && { email: values.email.trim() }),
+        department: values.department.trim(),
+        semester: Number(values.semester),
+        section: values.section.trim(),
       });
       toast.success('Student added.');
-      setValues({ name: '', rollNumber: '', email: '' });
+      setValues(EMPTY_STUDENT);
       onCreated(student);
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -48,10 +58,21 @@ function NewStudentDialog({ open, onClose, onCreated }) {
       <form onSubmit={submit} className="space-y-4">
         <TextInput label="Full name" value={values.name} onChange={change('name')} required />
         <TextInput label="Roll number" value={values.rollNumber} onChange={change('rollNumber')} error={idError} required />
-        <TextInput label="Email" type="email" value={values.email} onChange={change('email')} />
+        <div className="grid grid-cols-3 gap-3">
+          <TextInput label="Department" value={values.department} onChange={change('department')} placeholder="ME" required />
+          <Select label="Semester" value={values.semester} onChange={change('semester')} required>
+            <option value="">—</option>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </Select>
+          <TextInput label="Section" value={values.section} onChange={change('section')} placeholder="A" required />
+        </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" loading={busy} disabled={!values.name.trim() || !values.rollNumber.trim() || Boolean(idError)}>
+          <Button type="submit" variant="primary" loading={busy} disabled={!ready}>
             Add student
           </Button>
         </div>
@@ -127,7 +148,7 @@ export default function StudentsPage() {
                 <tr className="surface border-b border-line text-xs font-semibold text-muted">
                   <th scope="col" className="px-4 py-2">Roll Number</th>
                   <th scope="col" className="px-4 py-2">Name</th>
-                  <th scope="col" className="px-4 py-2">Email</th>
+                  <th scope="col" className="px-4 py-2">Department</th>
                   <th scope="col" className="px-4 py-2">Face photographs</th>
                 </tr>
               </thead>
@@ -145,7 +166,7 @@ export default function StudentsPage() {
                         {student.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-muted">{student.email}</td>
+                    <td className="px-4 py-3 text-muted">{student.department}</td>
                     <td className="px-4 py-3 tabular-nums">
                       {student.faceCount > 0 ? (
                         student.faceCount

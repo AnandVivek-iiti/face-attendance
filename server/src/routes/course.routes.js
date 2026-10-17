@@ -12,6 +12,8 @@ router.use(authenticate);
 
 router.get('/', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR), controller.list);
 router.get('/available', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR, ROLES.STUDENT), controller.listAll);
+// Registered before /:id so "professors" is not read as a course id.
+router.get('/professors', authorizeRole(ROLES.ADMIN), controller.listProfessors);
 router.post('/', authorizeRole(ROLES.ADMIN), validate({ body: schemas.createCourse }), controller.create);
 router.get('/:id', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR), controller.getOne);
 router.put('/:id', authorizeRole(ROLES.ADMIN), validate({ body: schemas.updateCourse }), controller.update);

@@ -10,12 +10,14 @@
 @theme {
   --glass-fill: rgba(1, 59, 0, 0.8);
   --glass-fill-strong: rgba(0, 38, 0, 0.94);
-  --glass-fill-soft: rgba(0, 255, 0, 0.04);
-  --glass-border: rgba(0, 255, 0, 0.16);
-  --glass-highlight: rgba(0, 255, 0, 0.07);
-  --glass-shadow: inset 0 1px 0 0 rgba(0, 255, 0, 0.06), 0 14px 34px -22px rgba(0, 0, 0, 0.95);
+  --glass-fill-soft: rgba(var(--accent-rgb), 0.04);
+  --glass-border: rgba(var(--accent-rgb), 0.16);
+  --glass-highlight: rgba(var(--accent-rgb), 0.07);
+  --glass-shadow: inset 0 1px 0 0 rgba(var(--accent-rgb), 0.06), 0 14px 34px -22px rgba(0, 0, 0, 0.95);
 
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-soft: cubic-bezier(0.55, 0, 0.9, 0.45);
+  --ease-in-out-soft: cubic-bezier(0.65, 0, 0.35, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   --animate-page-in: page-in 0.3s var(--ease-out-soft) both;
@@ -179,10 +181,10 @@
 
 @keyframes ring-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgba(0, 255, 0, 0.55);
+    box-shadow: 0 0 0 0 rgba(var(--accent-rgb), 0.55);
   }
   100% {
-    box-shadow: 0 0 0 10px rgba(0, 255, 0, 0);
+    box-shadow: 0 0 0 10px rgba(var(--accent-rgb), 0);
   }
 }
 
@@ -194,6 +196,57 @@
   to {
     opacity: 0;
     transform: scale(2.6);
+  }
+}
+
+/* Exit animations: dialogs and toasts leave as smoothly as they arrive. */
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes pop-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96) translate3d(0, 6px, 0);
+  }
+}
+
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(24px, 0, 0) scale(0.96);
+  }
+}
+
+@keyframes toast-timer {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -5px, 0);
   }
 }
 
@@ -213,6 +266,11 @@
 
 @layer base {
   :root {
+    /* Accent colour as bare channels, so one edit re-tints every glow, border
+       and highlight below. The cursors and the Tailwind colour ramps in
+       tailwind.config.js still carry their own green. */
+    --accent-rgb: 0, 255, 0;
+
     --cursor-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M3 2v17l4.6-4 3 7 2.6-1.1-3-6.8H17z' fill='%2300ff00' stroke='%23001900' stroke-width='1.3' stroke-linejoin='round'/%3E%3C/svg%3E") 3 2, default;
     --cursor-lock: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M4 10V4h6M18 4h6v6M24 18v6h-6M10 24H4v-6' fill='none' stroke='%23001900' stroke-width='4.2' stroke-linecap='square'/%3E%3Cpath d='M4 10V4h6M18 4h6v6M24 18v6h-6M10 24H4v-6' fill='none' stroke='%2300ff00' stroke-width='2' stroke-linecap='square'/%3E%3Ccircle cx='14' cy='14' r='2.2' fill='%2300ff00' stroke='%23001900' stroke-width='1'/%3E%3C/svg%3E") 14 14, pointer;
     --cursor-beam: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='24' viewBox='0 0 16 24'%3E%3Cpath d='M4 3h8M8 3v18M4 21h8' fill='none' stroke='%23001900' stroke-width='4' stroke-linecap='square'/%3E%3Cpath d='M4 3h8M8 3v18M4 21h8' fill='none' stroke='%2300ff00' stroke-width='1.8' stroke-linecap='square'/%3E%3C/svg%3E") 8 12, text;
@@ -228,6 +286,10 @@
        page grows past the viewport (modals, validation messages, lists). */
     scrollbar-gutter: stable;
     font-variant-ligatures: none;
+    /* In-page jumps and scrollTo() glide instead of snapping. The reduced-motion
+       block at the end of this layer switches it back off. */
+    scroll-behavior: smooth;
+    scroll-padding-top: 4.5rem;
   }
 
   body {
@@ -236,6 +298,9 @@
     line-height: 1.55;
     min-height: 100vh;
     overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   /* Static backdrop: faint grid fading out from the top-left, plus a dim
@@ -247,9 +312,9 @@
     z-index: -2;
     pointer-events: none;
     background:
-      radial-gradient(46rem 32rem at 6% -8%, rgba(0, 255, 0, 0.08), transparent 70%),
-      linear-gradient(rgba(0, 255, 0, 0.11) 1px, transparent 1px) 0 0 / 36px 36px,
-      linear-gradient(90deg, rgba(0, 255, 0, 0.11) 1px, transparent 1px) 0 0 / 36px 36px,
+      radial-gradient(46rem 32rem at 6% -8%, rgba(var(--accent-rgb), 0.08), transparent 70%),
+      linear-gradient(rgba(var(--accent-rgb), 0.11) 1px, transparent 1px) 0 0 / 36px 36px,
+      linear-gradient(90deg, rgba(var(--accent-rgb), 0.11) 1px, transparent 1px) 0 0 / 36px 36px,
       #021a00;
     -webkit-mask-image: radial-gradient(120% 90% at 20% 0%, #000 35%, rgba(0, 0, 0, 0.55) 100%);
     mask-image: radial-gradient(120% 90% at 20% 0%, #000 35%, rgba(0, 0, 0, 0.55) 100%);
@@ -275,14 +340,17 @@
 
   input, textarea { caret-color: #00ff00; caret-shape: block; }
 
-  * { scrollbar-width: thin; scrollbar-color: rgba(0, 255, 0, 0.3) transparent; }
+  /* Native checkboxes / radios pick up the accent instead of browser blue. */
+  input[type='checkbox'], input[type='radio'] { accent-color: #00ff00; }
+
+  * { scrollbar-width: thin; scrollbar-color: rgba(var(--accent-rgb), 0.3) transparent; }
   *::-webkit-scrollbar { width: 10px; height: 10px; }
   *::-webkit-scrollbar-thumb {
-    background: rgba(0, 255, 0, 0.25);
+    background: rgba(var(--accent-rgb), 0.25);
     border: 3px solid transparent;
     background-clip: content-box;
   }
-  *::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 0, 0.55); background-clip: content-box; }
+  *::-webkit-scrollbar-thumb:hover { background: rgba(var(--accent-rgb), 0.55); background-clip: content-box; }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -322,17 +390,49 @@ textarea, [contenteditable='true'] { cursor: var(--cursor-beam); }
     box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
   }
 
-  /* --- Interaction: hover lift, press feedback, ripple ------------------- */
-  /* Hover feedback is a border glow only. Nothing moves, so a form inside a
-     card can never jitter under the pointer. */
+  /* --- Interaction: hover glow, press feedback, ripple ------------------- */
+  /* Hover feedback is a border glow plus a soft spotlight that follows the
+     pointer (--mx / --my are fed by src/utils/pointerGlow.js). Nothing moves,
+     so a form inside a card can never jitter under the pointer. */
   .lift {
-    transition: box-shadow 0.2s ease;
+    position: relative;
+    transition: box-shadow 0.28s var(--ease-out-soft);
+  }
+
+  .lift::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(
+      240px circle at var(--mx, 50%) var(--my, 0%),
+      rgba(var(--accent-rgb), 0.1),
+      transparent 65%
+    );
+    transition: opacity 0.3s ease;
+  }
+
+  .lift:hover::before {
+    opacity: 1;
   }
 
   .lift:hover {
     box-shadow:
-      inset 0 0 0 1px rgba(0, 255, 0, 0.3),
+      inset 0 0 0 1px rgba(var(--accent-rgb), 0.34),
+      0 0 26px -12px rgba(var(--accent-rgb), 0.5),
       var(--glass-shadow);
+  }
+
+  /* Table rows brighten under the pointer. :where() keeps specificity at zero
+     so any bg-* utility on a row still wins. */
+  :where(tbody) > :where(tr) {
+    transition: background-color 0.18s ease;
+  }
+
+  :where(tbody) > :where(tr):hover {
+    background-color: rgba(var(--accent-rgb), 0.05);
   }
 
   .ripple {
@@ -382,7 +482,7 @@ textarea, [contenteditable='true'] { cursor: var(--cursor-beam); }
     background-image: linear-gradient(
       100deg,
       rgba(255, 255, 255, 0.04) 20%,
-      rgba(0, 255, 0, 0.14) 45%,
+      rgba(var(--accent-rgb), 0.14) 45%,
       rgba(255, 255, 255, 0.04) 70%
     );
     background-size: 200% 100%;
@@ -400,7 +500,7 @@ textarea, [contenteditable='true'] { cursor: var(--cursor-beam); }
     font-size: 0.875rem;
     line-height: 1.25rem;
     color: #c6ffc0;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    transition: border-color 0.18s ease, box-shadow 0.22s var(--ease-out-soft), background-color 0.18s ease;
   }
 
   /* iOS / Android zoom the page when a focused field is under 16px, which
@@ -414,12 +514,13 @@ textarea, [contenteditable='true'] { cursor: var(--cursor-beam); }
   }
 
   .control:hover:not(:disabled) {
-    border-color: rgba(0, 255, 0, 0.4);
+    border-color: rgba(var(--accent-rgb), 0.4);
   }
 
   .control:focus {
-    border-color: rgba(0, 255, 0, 0.9);
-    box-shadow: 0 0 0 3px rgba(0, 255, 0, 0.16), 0 0 18px -4px rgba(0, 255, 0, 0.35);
+    background-color: rgba(0, 32, 0, 0.92);
+    border-color: rgba(var(--accent-rgb), 0.9);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.16), 0 0 18px -4px rgba(var(--accent-rgb), 0.35);
     outline: none;
   }
 
@@ -438,9 +539,9 @@ textarea, [contenteditable='true'] { cursor: var(--cursor-beam); }
     position: absolute;
     left: 0;
     border-radius: 3px;
-    background: linear-gradient(120deg, rgba(0, 255, 0, 0.22), rgba(0, 255, 0, 0.06));
-    border: 1px solid rgba(0, 255, 0, 0.4);
-    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+    background: linear-gradient(120deg, rgba(var(--accent-rgb), 0.22), rgba(var(--accent-rgb), 0.06));
+    border: 1px solid rgba(var(--accent-rgb), 0.4);
+    box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.1), 0 0 16px -6px rgba(var(--accent-rgb), 0.5);
     opacity: 0;
     transform: scale(0.96);
     transform-origin: left center;
@@ -514,7 +615,7 @@ textarea, [contenteditable='true'] { cursor: var(--cursor-beam); }
     z-index: 5;
     pointer-events: none;
     opacity: 0;
-    background: linear-gradient(to bottom, transparent 0, rgba(0, 255, 0, 0.2) 86%, rgba(0, 255, 0, 0.9) 97%, transparent 100%) no-repeat;
+    background: linear-gradient(to bottom, transparent 0, rgba(var(--accent-rgb), 0.2) 86%, rgba(var(--accent-rgb), 0.9) 97%, transparent 100%) no-repeat;
     background-size: 100% 26%;
     background-position: 0 -60%;
   }
@@ -540,10 +641,10 @@ textarea, [contenteditable='true'] { cursor: var(--cursor-beam); }
     height: 1rem;
     padding: 2px;
     overflow: hidden;
-    border: 1px solid rgba(0, 255, 0, 0.55);
+    border: 1px solid rgba(var(--accent-rgb), 0.55);
     border-radius: 2px;
     background-color: rgba(0, 24, 0, 0.85);
-    box-shadow: 0 0 10px -4px rgba(0, 255, 0, 0.6);
+    box-shadow: 0 0 10px -4px rgba(var(--accent-rgb), 0.6);
   }
   .seg-fill {
     height: 100%;
@@ -565,7 +666,39 @@ textarea, [contenteditable='true'] { cursor: var(--cursor-beam); }
   }
 
   /* Faint phosphor glow on headings */
-  h1, h2, h3 { text-shadow: 0 0 10px rgba(0, 255, 0, 0.35); }
+  h1, h2, h3 { text-shadow: 0 0 10px rgba(var(--accent-rgb), 0.35); }
+
+  /* --- Exit states (dialogs, toasts) and idle motion --------------------- */
+  .modal-backdrop-out {
+    animation: fade-out 0.18s ease both;
+    pointer-events: none;
+  }
+
+  .modal-panel-out {
+    animation: pop-out 0.18s var(--ease-in-soft) both;
+  }
+
+  .toast-out {
+    animation: toast-out 0.22s var(--ease-in-soft) both;
+    pointer-events: none;
+  }
+
+  /* Thin countdown line along the bottom edge of a toast. */
+  .toast-timer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 2px;
+    background: currentColor;
+    opacity: 0.55;
+    transform-origin: left center;
+    animation: toast-timer linear forwards;
+  }
+
+  .float-slow {
+    animation: float-soft 4.5s ease-in-out infinite;
+  }
 
   /* --- Login ------------------------------------------------------------- */
   .hud-box {
@@ -587,10 +720,10 @@ textarea, [contenteditable='true'] { cursor: var(--cursor-beam); }
     padding: 0 0.75rem;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
-  .term-row:hover { border-color: rgba(0, 255, 0, 0.4); }
+  .term-row:hover { border-color: rgba(var(--accent-rgb), 0.4); }
   .term-row:focus-within {
-    border-color: rgba(0, 255, 0, 0.9);
-    box-shadow: 0 0 0 3px rgba(0, 255, 0, 0.16), 0 0 18px -4px rgba(0, 255, 0, 0.35);
+    border-color: rgba(var(--accent-rgb), 0.9);
+    box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.16), 0 0 18px -4px rgba(var(--accent-rgb), 0.35);
   }
   .term-row input {
     flex: 1;

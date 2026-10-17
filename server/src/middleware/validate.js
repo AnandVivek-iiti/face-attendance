@@ -10,6 +10,16 @@ const discardUploads = (req) => {
   }
 };
 
+// Express 5 exposes req.query as a getter-only property, so plain assignment
+// throws. Redefine it as an own property so both Express 4 and 5 work.
+const assign = (req, key, value) => {
+  if (key === 'query') {
+    Object.defineProperty(req, 'query', { value, writable: true, configurable: true, enumerable: true });
+  } else {
+    req[key] = value;
+  }
+};
+
 const validate = (schemas) => (req, res, next) => {
   for (const key of ['params', 'query', 'body']) {
     if (!schemas[key]) continue;
@@ -24,7 +34,7 @@ const validate = (schemas) => (req, res, next) => {
       discardUploads(req);
       return next(new AppError(`Validation failed - ${message}`, 400, { code: 'VALIDATION_ERROR', details }));
     }
-    req[key] = result.data;
+    assign(req, key, result.data);
   }
   return next();
 };

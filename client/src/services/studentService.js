@@ -34,9 +34,12 @@ export async function deleteStudent(id) {
   await http.delete(`/api/students/${id}`);
 }
 
+// The server keeps a single reference image per student (and rebuilds the
+// embedding from it), so exactly one file is sent in the `image` field.
 export async function uploadStudentFaces(id, files, onProgress) {
+  const file = Array.isArray(files) ? files[0] : files;
   const form = new FormData();
-  files.forEach((file) => form.append('images', file));
+  form.append('image', file);
   await http.post(`/api/students/${id}/face`, form, {
     timeout: 120000,
     onUploadProgress: (event) => {

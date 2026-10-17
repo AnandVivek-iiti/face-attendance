@@ -72,13 +72,15 @@ const main = async () => {
     await courseService.create({ ...COURSE, professorId: professor._id }, null);
     console.log(`Created course: ${COURSE.courseCode} - ${COURSE.courseName} (room ${COURSE.room})`);
   }
- const stored = await User.findOne({ email: PROFESSOR.email }).select('+passwordHash passwordSetByCourse');
+  const stored = await User.findOne({ email: PROFESSOR.email }).select('+passwordHash passwordSetByCourse');
   if (stored.passwordSetByCourse !== COURSE.courseCode) {
     await User.updateOne(
       { _id: professor._id },
       { $set: { passwordHash: await authService.hashPassword(professorPasswordFor(COURSE.courseCode)), passwordSetByCourse: COURSE.courseCode } }
     );
     console.log(`Set professor password to IIT@INDORE#${COURSE.courseCode}`);
+    // Reflect the write above so the summary below reports the real state.
+    stored.passwordSetByCourse = COURSE.courseCode;
   }
   console.log('\nProfessor login:');
   console.log(`  email:    ${PROFESSOR.email}`);

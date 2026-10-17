@@ -17,7 +17,6 @@ export default function ProfessorDashboard({ user }) {
   const courses = useAsync(getCourses);
   const history = useAsync(getHistory);
 
-  const loading = courses.loading || history.loading;
   const error = courses.error || history.error;
   const reload = () => {
     courses.reload();
@@ -38,25 +37,17 @@ export default function ProfessorDashboard({ user }) {
     />
   );
 
-  if (loading && !courses.data && !history.data) {
+  // Both requests must have answered before anything below reads their data.
+  if (!courses.data || !history.data) {
     return (
       <>
         {header}
-        <Spinner label="Loading dashboard" />
+        {error ? <ErrorState message={error} onRetry={reload} /> : <Spinner label="Loading dashboard" />}
       </>
     );
   }
 
-  if (error && (!courses.data || !history.data)) {
-    return (
-      <>
-        {header}
-        <ErrorState message={error} onRetry={reload} />
-      </>
-    );
-  }
-
-  const sessions = [...(history.data ?? [])].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const sessions = [...history.data].sort((a, b) => String(b.date).localeCompare(String(a.date)));
   const today = sessions.filter((session) => session.date === todayIso());
   const pending = sessions.filter((session) => session.status !== 'finalized');
   const recent = sessions.slice(0, 5);
@@ -67,7 +58,7 @@ export default function ProfessorDashboard({ user }) {
       {header}
 
       <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={BookOpen} label="Total Courses" value={(courses.data ?? 0).length} />
+        <StatCard icon={BookOpen} label="Total Courses" value={courses.data.length} />
         <StatCard icon={CalendarCheck} label="Today's Sessions" value={today.length} />
         <StatCard icon={ClipboardList} label="Pending Reviews" value={pending.length} hint="Sessions not yet finalized" />
         <StatCard

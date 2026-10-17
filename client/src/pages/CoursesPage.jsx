@@ -5,29 +5,37 @@ import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
-import { TextInput } from '../components/ui/Field';
+import { Select, TextInput } from '../components/ui/Field';
 import Modal from '../components/ui/Modal';
 import PageHeader from '../components/ui/PageHeader';
 import Spinner from '../components/ui/Spinner';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useAsync } from '../hooks/useAsync';
-import { createCourse, getCourse, getCourses } from '../services/courseService';
+import { createCourse, getCourses, getProfessors } from '../services/courseService';
+import { getStudents } from '../services/studentService';
 import { ROLES } from '../utils/constants';
 import { getErrorMessage } from '../utils/errors';
 
+// Students are not embedded in the course payload; the roster is every active
+// student in the course's semester + section.
 function CourseStudentsDialog({ course, onClose }) {
-  const { data, loading, error, reload } = useAsync(() => getCourse(course.id), [course.id]);
+  const { data, loading, error, reload } = useAsync(getStudents, []);
+  const students = (data ?? []).filter(
+    (student) =>
+      String(student.semester) === String(course.semester) &&
+      String(student.section).toUpperCase() === String(course.section).toUpperCase(),
+  );
   return (
     <Modal open title={`${course.code} ${course.name}`} onClose={onClose} width="max-w-xl">
       {loading && <Spinner label="Loading students" />}
-      {error && <ErrorState title="Could not load this course" message={error} onRetry={reload} />}
+      {error && <ErrorState title="Could not load students" message={error} onRetry={reload} />}
       {data &&
-        (data.students.length === 0 ? (
+        (students.length === 0 ? (
           <EmptyState title="No students enrolled" />
         ) : (
           <ul className="surface max-h-80 divide-y divide-line overflow-y-auto rounded-ctl border border-line">
-            {data.students.map((student) => (
+            {students.map((student) => (
               <li key={student.id} className="flex items-center justify-between px-3 py-2 text-sm">
                 <span className="font-semibold text-ink">{student.name}</span>
                 <span className="tabular-nums text-muted">{student.rollNumber}</span>
@@ -39,24 +47,32 @@ function CourseStudentsDialog({ course, onClose }) {
   );
 }
 
+const EMPTY_COURSE = { courseCode: '', courseName: '', professorId: '', semester: '', section: '', room: '' };
+
 function NewCourseDialog({ open, onClose, onCreated }) {
   const toast = useToast();
-  const [values, setValues] = useState({ code: '', name: '', department: '' });
+  // Only admins can list professors, and only the open dialog needs them.
+  const { data: professors = [] } = useAsync(getProfessors, [], { enabled: open });
+  const [values, setValues] = useState(EMPTY_COURSE);
   const [busy, setBusy] = useState(false);
 
   const change = (key) => (event) => setValues((current) => ({ ...current, [key]: event.target.value }));
+  const ready = values.courseCode.trim() && values.courseName.trim() && values.professorId && values.semester && values.section.trim();
 
   const submit = async (event) => {
     event.preventDefault();
     setBusy(true);
     try {
       await createCourse({
-        code: values.code.trim(),
-        name: values.name.trim(),
-        ...(values.department.trim() && { department: values.department.trim() }),
+        courseCode: values.courseCode.trim(),
+        courseName: values.courseName.trim(),
+        professorId: values.professorId,
+        semester: Number(values.semester),
+        section: values.section.trim(),
+        room: values.room.trim() || null,
       });
       toast.success('Course created.');
-      setValues({ code: '', name: '', department: '' });
+      setValues(EMPTY_COURSE);
       onCreated();
     } catch (err) {
       toast.error(getErrorMessage(err));
@@ -68,12 +84,31 @@ function NewCourseDialog({ open, onClose, onCreated }) {
   return (
     <Modal open={open} title="New course" onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
-        <TextInput label="Course code" value={values.code} onChange={change('code')} required />
-        <TextInput label="Course name" value={values.name} onChange={change('name')} required />
-        <TextInput label="Department" value={values.department} onChange={change('department')} />
+        <TextInput label="Course code" value={values.courseCode} onChange={change('courseCode')} placeholder="ME217" required />
+        <TextInput label="Course name" value={values.courseName} onChange={change('courseName')} placeholder="INDUSTRIAL DATA ANALYTICS" required />
+        <Select label="Professor" value={values.professorId} onChange={change('professorId')} required>
+          <option value="">Choose professor</option>
+          {professors.map((professor) => (
+            <option key={professor.id} value={professor.id}>
+              {professor.name} ({professor.email})
+            </option>
+          ))}
+        </Select>
+        <div className="grid grid-cols-3 gap-3">
+          <Select label="Semester" value={values.semester} onChange={change('semester')} required>
+            <option value="">—</option>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </Select>
+          <TextInput label="Section" value={values.section} onChange={change('section')} placeholder="A" required />
+          <TextInput label="Room" value={values.room} onChange={change('room')} placeholder="L03" />
+        </div>
         <div className="flex justify-end gap-2 pt-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button type="submit" variant="primary" loading={busy} disabled={!values.code.trim() || !values.name.trim()}>
+          <Button type="submit" variant="primary" loading={busy} disabled={!ready}>
             Create course
           </Button>
         </div>
@@ -158,14 +193,16 @@ export default function CoursesPage() {
         </div>
       )}
       {viewing && <CourseStudentsDialog course={viewing} onClose={() => setViewing(null)} />}
-      <NewCourseDialog
-        open={creating}
-        onClose={() => setCreating(false)}
-        onCreated={() => {
-          setCreating(false);
-          reload();
-        }}
-      />
+      {isAdmin && (
+        <NewCourseDialog
+          open={creating}
+          onClose={() => setCreating(false)}
+          onCreated={() => {
+            setCreating(false);
+            reload();
+          }}
+        />
+      )}
     </>
   );
 }

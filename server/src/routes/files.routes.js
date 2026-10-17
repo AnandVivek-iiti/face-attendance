@@ -3,20 +3,23 @@ const path = require('path');
 const fs = require('fs');
 const authenticate = require('../middleware/authenticate');
 const authorizeRole = require('../middleware/authorizeRole');
+const asyncHandler = require('../utils/asyncHandler');
 const env = require('../config/env');
 const AppError = require('../utils/AppError');
+const fileAccessService = require('../services/fileAccessService');
 const { ROLES } = require('../config/constants');
 
 const router = express.Router();
 const root = path.resolve(env.storageRoot);
 
-// Allowlist the two folders that hold real uploads. Anything else is a 404
-// even if it somehow resolved inside the storage root.
-const ALLOWED_PREFIXES = ['attendance-images/', 'registered-faces/', 'profile-images/'];
+const CONTENT_TYPES = { '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
+const notFound = () => new AppError('File not found', 404, { code: 'FILE_NOT_FOUND' });
 
 // <img> tags and Image() loaders cannot send an Authorization header, so the
 // client appends ?token=<jwt> to file URLs. Accept it here (and only here),
-// then run the normal authenticate chain — same verification, no weakening.
+// then run the normal authenticate chain - same verification, no weakening.
+// NOTE: a token in a URL can end up in access logs and browser history, so keep
+// proxy/access logs from recording query strings for /api/files.
 const tokenFromQuery = (req, _res, next) => {
   if (!req.headers.authorization && typeof req.query.token === 'string' && req.query.token) {
     req.headers.authorization = `Bearer ${req.query.token}`;
@@ -24,37 +27,50 @@ const tokenFromQuery = (req, _res, next) => {
   next();
 };
 
-router.get('/*', tokenFromQuery, authenticate, authorizeRole(ROLES.PROFESSOR, ROLES.ADMIN), (req, res, next) => {
-  try {
-    const relative = decodeURIComponent(req.params[0] || '');
-    const normalized = relative.split(path.sep).join('/');
-    if (!ALLOWED_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
-      throw new AppError('File not found', 404, { code: 'FILE_NOT_FOUND' });
-    }
+// A regular expression (rather than '/*') behaves the same on Express 4 and 5,
+// where the wildcard syntax is different and '/*' is rejected at startup on 5.
+router.get(
+  /^\/(.+)$/,
+  tokenFromQuery,
+  authenticate,
+  authorizeRole(ROLES.PROFESSOR, ROLES.ADMIN),
+  asyncHandler(async (req, res) => {
+    // Express has already URL-decoded the capture; decoding again would let
+    // "%252e%252e" turn into "..". Only the strict allowlist below is trusted.
+    const relative = String((req.params && req.params[0]) || '');
+    const info = fileAccessService.classify(relative);
+    if (!info) throw notFound();
 
-    // Resolve, then confirm the result is still inside storage. Stops ../ escapes.
-    const absolute = path.resolve(root, normalized);
-    if (absolute !== root && !absolute.startsWith(root + path.sep)) {
-      throw new AppError('File not found', 404, { code: 'FILE_NOT_FOUND' });
-    }
+    // Same 404 whether the file is missing or merely not theirs, so the route
+    // cannot be used to probe which photos exist.
+    if (!(await fileAccessService.canAccess(req.user, relative, info))) throw notFound();
 
-    if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) {
-      throw new AppError('File not found', 404, { code: 'FILE_NOT_FOUND' });
-    }
+    const absolute = path.resolve(root, relative);
+    if (!absolute.startsWith(root + path.sep)) throw notFound();
 
-    const ext = path.extname(absolute).toLowerCase();
-    const types = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
-    const type = types[ext];
-    if (!type) throw new AppError('File not found', 404, { code: 'FILE_NOT_FOUND' });
+    let real;
+    try {
+      real = await fs.promises.realpath(absolute);
+      const stat = await fs.promises.stat(real);
+      if (!stat.isFile()) throw notFound();
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw notFound();
+    }
+    // A symlink planted inside storage must not lead outside it.
+    const realRoot = await fs.promises.realpath(root);
+    if (!real.startsWith(realRoot + path.sep)) throw notFound();
+
+    const type = CONTENT_TYPES[path.extname(real).toLowerCase()];
+    if (!type) throw notFound();
 
     res.set('Content-Type', type);
     res.set('Cache-Control', 'private, max-age=3600');
-    res.sendFile(absolute, (error) => {
-      if (error) next(error);
+    res.set('Content-Disposition', 'inline');
+    await new Promise((resolve, reject) => {
+      res.sendFile(real, { dotfiles: 'deny' }, (error) => (error ? reject(error) : resolve()));
     });
-  } catch (error) {
-    next(error);
-  }
-});
+  })
+);
 
 module.exports = router;

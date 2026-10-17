@@ -1,6 +1,7 @@
 const AttendanceRecord = require('../models/AttendanceRecord');
 const AttendanceSession = require('../models/AttendanceSession');
 const AppError = require('../utils/AppError');
+const courseService = require('./courseService');
 const auditService = require('./auditService');
 const sessionService = require('./sessionService');
 const studentService = require('./studentService');
@@ -58,7 +59,8 @@ const presentRecord = async (record) => {
 const changeStatus = async (session, record, student, user, body) => {
   const before = snapshot(record);
   const aiInvolved = Boolean(record.aiStudentId);
-  record.status = body.status;
+  record.status = body.status ?? record.status;
+  if (body.ignored !== undefined) record.ignored = body.ignored;
   markReviewed(record, aiInvolved ? RECORD_SOURCE.AI_REVIEWED : RECORD_SOURCE.MANUAL);
   await record.save();
 
@@ -66,7 +68,7 @@ const changeStatus = async (session, record, student, user, body) => {
     auditService.userEntry(user, {
       sessionId: session._id,
       studentId: student._id,
-      action: before.status === body.status ? AUDIT_ACTIONS.RECORD_CONFIRMED : AUDIT_ACTIONS.RECORD_STATUS_CHANGED,
+      action: before.status === record.status ? AUDIT_ACTIONS.RECORD_CONFIRMED : AUDIT_ACTIONS.RECORD_STATUS_CHANGED,
       before,
       after: snapshot(record),
       note: body.note || null
@@ -80,11 +82,28 @@ const updateRecord = async (sessionId, studentRef, user, body) => {
   const session = await sessionService.getOwnedSession(sessionId, user);
   assertEditable(session);
   const student = await studentService.getByRef(studentRef);
-  const record = await AttendanceRecord.findOne({ sessionId: session._id, studentId: student._id });
+  let record = await AttendanceRecord.findOne({ sessionId: session._id, studentId: student._id });
+  let isNew = false;
   if (!record) {
-    throw new AppError('Student is not part of this attendance session', 404, { code: 'RECORD_NOT_FOUND' });
+    // A student added to the roster during review has no record yet. Create one
+    // so the professor's manual mark persists. It must still be a student of
+    // this course's cohort: otherwise a professor could put anyone on a class.
+    const course = await courseService.getById(session.courseId);
+    if (!student.active || student.semester !== course.semester || student.section !== course.section) {
+      throw new AppError('That student is not enrolled in this course', 409, { code: 'STUDENT_NOT_IN_COURSE' });
+    }
+    record = new AttendanceRecord({
+      sessionId: session._id,
+      studentId: student._id,
+      status: body.status ?? RECORD_STATUS.ABSENT,
+      source: RECORD_SOURCE.MANUAL
+    });
+    isNew = true;
   }
-  return changeStatus(session, record, student, user, body);
+  const result = await changeStatus(session, record, student, user, body);
+  // changeStatus recounts from the database, so the totals already include the
+  // new record; nothing else to adjust.
+  return isNew ? { ...result, created: true } : result;
 };
 
 module.exports = { tally, refreshSessionCounts, updateRecord };

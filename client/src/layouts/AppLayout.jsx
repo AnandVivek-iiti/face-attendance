@@ -86,12 +86,16 @@ function NavItems({ items, pathname, onNavigate }) {
           end={to === '/dashboard'}
           onClick={onNavigate}
           className={({ isActive }) =>
-            `relative z-10 flex items-center gap-2.5 rounded-ctl px-3 py-2 text-sm font-semibold transition-colors duration-200 ${
+            `group relative z-10 flex items-center gap-2.5 rounded-ctl px-3 py-2 text-sm font-semibold transition-colors duration-200 ${
               isActive ? 'text-primary' : 'text-ink hover:text-primary'
             }`
           }
         >
-          <Icon size={16} aria-hidden="true" />
+          <Icon
+            size={16}
+            aria-hidden="true"
+            className="transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:translate-x-0.5 group-hover:scale-110"
+          />
           {label}
         </NavLink>
       ))}
@@ -124,9 +128,13 @@ function Sidebar({ items, user, onSignOut, onNavigate, pathname }) {
         <button
           type="button"
           onClick={onSignOut}
-          className="flex w-full items-center gap-2 rounded-ctl px-3 py-2 text-sm font-semibold text-ink transition-colors hover:bg-white/10 hover:text-primary"
+          className="group flex w-full items-center gap-2 rounded-ctl px-3 py-2 text-sm font-semibold text-ink transition-colors duration-200 hover:bg-white/10 hover:text-primary"
         >
-          <LogOut size={16} aria-hidden="true" />
+          <LogOut
+            size={16}
+            aria-hidden="true"
+            className="transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:translate-x-0.5"
+          />
           Sign out
         </button>
       </div>

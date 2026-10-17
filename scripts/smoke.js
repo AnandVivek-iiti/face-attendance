@@ -40,10 +40,6 @@ const request = (url, { method = 'GET', token, body, form, headers = {} } = {}) 
     if (payload) req.write(payload);
     req.end();
   });
-
-// Build a synthetic classroom photo: a plain background with a crude face-like
-// shape is not enough for SCRFD, so we rely on a real photo when present and
-// otherwise exercise the "no usable face" path, which is itself a valid check.
 const findPhoto = () => {
   const candidates = [
     path.join(__dirname, 'smoke-classroom.jpg'),

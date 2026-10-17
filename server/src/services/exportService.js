@@ -9,10 +9,19 @@ const { SESSION_STATUS } = require('../config/constants');
 
 const COLUMNS = ['Roll Number', 'Name', 'Status', 'Course', 'Date'];
 
+// Spreadsheet programs run any cell that starts with = + - @ (or a tab / CR) as
+// a formula. Names and roll numbers are typed by users, so one called
+// =HYPERLINK(...) would execute on whoever opens the export. A leading quote
+// makes the cell plain text.
+const neutralizeFormula = (text) => (/^[=+\-@\t\r]/.test(text) ? `'${text}` : text);
+
 const escape = (value) => {
-  const text = value == null ? '' : String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  const text = neutralizeFormula(value == null ? '' : String(value));
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 };
+
+// Course codes end up in the Content-Disposition header.
+const safeFilenamePart = (value) => String(value || 'export').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60);
 
 const toCsv = (rows) => rows.map((row) => row.map(escape).join(',')).join('\r\n');
 
@@ -45,10 +54,8 @@ const courseLabel = (course) => `${course.courseCode} - ${course.courseName}`;
 
 // One row per student for a single session.
 const exportSessionCsv = async (sessionId, user) => {
-  const { session, course, records } = await loadSessionWithRecords(sessionId);
-  if (!session.professorId.equals(user._id)) {
-    throw new AppError('You are not authorized for this attendance session', 403, { code: 'FORBIDDEN' });
-  }
+  const owned = await sessionService.getOwnedSession(sessionId, user);
+  const { session, course, records } = await loadSessionWithRecords(owned._id);
   const rows = [COLUMNS];
   for (const record of records) {
     rows.push([
@@ -60,7 +67,7 @@ const exportSessionCsv = async (sessionId, user) => {
     ]);
   }
   return {
-    filename: `${course.courseCode}-${isoDate(session.date)}.csv`,
+    filename: `${safeFilenamePart(course.courseCode)}-${isoDate(session.date)}.csv`,
     csv: toCsv(rows)
   };
 };
@@ -139,4 +146,4 @@ const exportAllCsv = async (user) => {
   };
 };
 
-module.exports = { exportSessionCsv, exportAllCsv };
+module.exports = { exportSessionCsv, exportAllCsv, escape, toCsv };

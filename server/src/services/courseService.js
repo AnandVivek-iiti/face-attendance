@@ -5,7 +5,8 @@ const AppError = require('../utils/AppError');
 const auditService = require('./auditService');
 const authService = require('./authService');
 const { toObjectId } = require('../utils/objectId');
-const { ROLES, AUDIT_ACTIONS, professorPasswordFor } = require('../config/constants');
+const AttendanceSession = require('../models/AttendanceSession');
+const { ROLES, AUDIT_ACTIONS } = require('../config/constants');
 
 const getById = async (id) => {
   const course = await Course.findById(toObjectId(id, 'course id'));
@@ -19,14 +20,24 @@ const assertCanView = (user, course) => {
   throw new AppError('You are not authorized for this course', 403, { code: 'FORBIDDEN' });
 };
 
-const withEnrolledCount = async (course) => ({
-  ...course.toJSON(),
-  enrolledCount: await Student.countDocuments({
-    semester: course.semester,
-    section: course.section,
-    active: true
-  })
-});
+const withEnrolledCount = async (course, { includeProfessorEmail = true } = {}) => {
+  const [enrolledCount, professor] = await Promise.all([
+    Student.countDocuments({
+      semester: course.semester,
+      section: course.section,
+      active: true
+    }),
+    course.professorId ? User.findById(course.professorId).select('name email').lean() : null
+  ]);
+  return {
+    ...course.toJSON(),
+    // The client shows the assigned professor's name; the raw doc only has the id.
+    professorName: professor?.name ?? null,
+    // Staff contact details are not for students to harvest.
+    professorEmail: includeProfessorEmail ? professor?.email ?? null : null,
+    enrolledCount
+  };
+};
 
 const list = async (user) => {
   const filter =
@@ -36,9 +47,10 @@ const list = async (user) => {
 };
 
 /** Every course, for students picking one to enroll in. */
-const listAll = async () => {
+const listAll = async (user) => {
+  const includeProfessorEmail = Boolean(user) && user.role !== ROLES.STUDENT;
   const courses = await Course.find().sort({ courseCode: 1, section: 1 });
-  return Promise.all(courses.map(withEnrolledCount));
+  return Promise.all(courses.map((course) => withEnrolledCount(course, { includeProfessorEmail })));
 };
 
 const assertProfessor = async (professorId) => {
@@ -47,31 +59,9 @@ const assertProfessor = async (professorId) => {
   return professor;
 };
 
-/**
- * A professor's login password is auto-derived from the course they are first
- * assigned to: IIT@INDORE#<COURSE CODE>. If the professor already has one (from
- * an earlier course) it is left untouched, so teaching a second course never
- * locks them out.
- */
-const ensureProfessorPassword = async (professorId, courseCode) => {
-  const professor = await User.findById(professorId).select('+passwordHash passwordSetByCourse');
-  if (!professor) return;
-  if (professor.passwordSetByCourse) return;
-  await User.updateOne(
-    { _id: professorId },
-    {
-      $set: {
-        passwordHash: await authService.hashPassword(professorPasswordFor(courseCode)),
-        passwordSetByCourse: courseCode
-      }
-    }
-  );
-};
-
 const create = async (data, actor) => {
-  const professor = await assertProfessor(data.professorId);
+  await assertProfessor(data.professorId);
   const course = await Course.create(data);
-  await ensureProfessorPassword(course.professorId, course.courseCode);
 
   if (actor) {
     await auditService.record(
@@ -86,13 +76,9 @@ const create = async (data, actor) => {
 
 const update = async (id, data, actor) => {
   const course = await getById(id);
-  const previous = course.toObject();
   if (data.professorId !== undefined) await assertProfessor(data.professorId);
   course.set(data);
   await course.save();
-  if (data.professorId !== undefined && !data.professorId.equals(previous.professorId)) {
-    await ensureProfessorPassword(data.professorId, course.courseCode);
-  }
 
   if (actor) {
     await auditService.record(
@@ -107,7 +93,6 @@ const update = async (id, data, actor) => {
 
 const remove = async (id, actor) => {
   const course = await getById(id);
-  const { AttendanceSession } = require('../models/AttendanceSession');
   const sessionCount = await AttendanceSession.countDocuments({ courseId: course._id });
   if (sessionCount > 0) {
     throw new AppError('A course with attendance sessions cannot be removed', 409, {
@@ -132,15 +117,27 @@ const getOne = async (user, id) => {
   return withEnrolledCount(course);
 };
 
-/** Admin: provision a professor. Password arrives with their first course. */
+/** Admin: list provisioned professors so courses can be assigned to one. */
+const listProfessors = async () => {
+  const professors = await User.find({ role: ROLES.PROFESSOR }).select('name email').sort({ name: 1 });
+  return professors.map((professor) => professor.toJSON());
+};
+
+/**
+ * Admin: provision a professor. A random one-time password is generated and
+ * returned in this response only; it is never stored in readable form and the
+ * professor must change it at first sign-in.
+ */
 const addProfessor = async (data, actor) => {
   const existing = await User.findOne({ email: data.email });
   if (existing) throw new AppError('An account with that email already exists', 409, { code: 'EMAIL_TAKEN' });
+  const temporaryPassword = authService.generateTemporaryPassword();
   const professor = await User.create({
     name: data.name,
     email: data.email,
     role: ROLES.PROFESSOR,
-    passwordSetByCourse: null
+    passwordHash: await authService.hashPassword(temporaryPassword),
+    mustChangePassword: true
   });
   if (actor) {
     await auditService.record(
@@ -150,7 +147,18 @@ const addProfessor = async (data, actor) => {
       })
     );
   }
-  return professor.toJSON();
+  return { ...professor.toJSON(), temporaryPassword };
 };
 
-module.exports = { getById, list, listAll, create, update, remove, getOne, addProfessor, ensureProfessorPassword, assertProfessor };
+module.exports = {
+  getById,
+  list,
+  listAll,
+  create,
+  update,
+  remove,
+  getOne,
+  listProfessors,
+  addProfessor,
+  assertProfessor
+};

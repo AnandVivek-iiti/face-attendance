@@ -1,7 +1,6 @@
 const Student = require('../models/Student');
 const Course = require('../models/Course');
 const EnrollmentRequest = require('../models/EnrollmentRequest');
-const AttendanceSession = require('../models/AttendanceSession');
 const AttendanceRecord = require('../models/AttendanceRecord');
 const User = require('../models/User');
 const AppError = require('../utils/AppError');
@@ -10,7 +9,7 @@ const storageService = require('./storageService');
 const auditService = require('./auditService');
 const { isObjectId } = require('../utils/objectId');
 const { skipFor, toPagination } = require('../utils/pagination');
-const { ROLES, ENROLLMENT_REQUEST_STATUS, AUDIT_ACTIONS, RECORD_STATUS } = require('../config/constants');
+const { ROLES, ENROLLMENT_REQUEST_STATUS, AUDIT_ACTIONS, RECORD_STATUS, SESSION_STATUS } = require('../config/constants');
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -23,7 +22,13 @@ const getByRef = async (ref) => {
 
 const assertCanView = async (user, student) => {
   if (user.role === ROLES.ADMIN) return;
-  if (user.role === ROLES.STUDENT && user.studentId === student.studentId) return;
+  if (
+    user.role === ROLES.STUDENT &&
+    user.studentId &&
+    (String(user.studentId) === String(student._id) || String(user.studentId) === student.studentId)
+  ) {
+    return;
+  }
   if (user.role === ROLES.PROFESSOR) {
     const teaches = await Course.exists({
       professorId: user._id,
@@ -177,15 +182,30 @@ const assertCourseExists = async (courseId) => {
  * themselves to a course directly.
  */
 const buildProfile = async (user, files, body) => {
-  const course = await assertCourseExists(body.courseId);
+  let course;
+  try {
+    course = await assertCourseExists(body.courseId);
+  } catch (error) {
+    await storageService.removeFiles((files || []).map((file) => file.path));
+    throw error;
+  }
 
   const existing = await findInCourse(body.rollNumber, course);
   if (existing) {
+    // Linking exposes that student's attendance history. If another account
+    // already holds this roll number, a second one must not be able to take it
+    // over just by typing the same number.
+    const claimedBy = await User.exists({ studentId: String(existing._id), _id: { $ne: user._id } });
+    if (claimedBy) {
+      throw new AppError('This roll number is already linked to another account', 409, {
+        code: 'ROLL_NUMBER_CLAIMED'
+      });
+    }
     await User.updateOne(
       { _id: user._id },
       {
         $set: {
-          studentId: existing._id,
+          studentId: String(existing._id),
           profile: {
             rollNumber: body.rollNumber,
             name: body.name || user.name || existing.name,
@@ -196,6 +216,8 @@ const buildProfile = async (user, files, body) => {
         }
       }
     );
+    // The photo is not needed when the roll number is already on the roster.
+    await storageService.removeFiles((files || []).map((file) => file.path));
     return {
       enrolled: true,
       request: null,
@@ -207,6 +229,10 @@ const buildProfile = async (user, files, body) => {
   if (!files || files.length !== 1) {
     throw new AppError('Exactly one face photo is required in the "image" field', 400, { code: 'INVALID_UPLOAD' });
   }
+  if (!body.year) {
+    await storageService.removeFiles(files.map((file) => file.path));
+    throw new AppError('year is required when requesting enrollment', 400, { code: 'VALIDATION_ERROR' });
+  }
 
   const duplicate = await EnrollmentRequest.findOne({
     userId: user._id,
@@ -214,6 +240,7 @@ const buildProfile = async (user, files, body) => {
     status: ENROLLMENT_REQUEST_STATUS.PENDING
   });
   if (duplicate) {
+    await storageService.removeFiles(files.map((file) => file.path));
     throw new AppError('You already have a pending request for this course', 409, { code: 'REQUEST_PENDING' });
   }
 
@@ -301,26 +328,25 @@ const getProfile = async (user) => {
  * yet written still sees their history.
  */
 const getAttendance = async (user) => {
-  const linked = user.studentId ? await Student.findById(user.studentId) : null;
+  const linked = user.studentId && isObjectId(String(user.studentId)) ? await Student.findById(user.studentId) : null;
   const rollNumber = linked?.rollNumber || user.profile?.rollNumber;
 
-  const records = await AttendanceRecord.find({ studentId: linked ? linked._id : null })
-    .populate('sessionId', 'date status courseId')
-    .lean();
+  // Only finalized sessions count: earlier ones still hold unreviewed AI guesses
+  // (including "needs review", which would otherwise be shown as absent).
+  const allRecords = linked
+    ? await AttendanceRecord.find({ studentId: linked._id })
+        .populate('sessionId', 'date status courseId')
+        .lean()
+    : [];
+  const records = allRecords.filter((record) => record.sessionId && record.sessionId.status === SESSION_STATUS.FINALIZED);
 
-  const courseIds = [...new Set(records.map((r) => String(r.sessionId?.courseId)))].filter(Boolean);
+  const courseIds = [...new Set(records.map((record) => String(record.sessionId.courseId)))];
   const courses = await Course.find({ _id: { $in: courseIds } }).lean();
-  const courseById = new Map(courses.map((c) => [String(c._id), c]));
-
-  const sessions = await AttendanceSession.find({
-    courseId: { $in: courseIds },
-    status: 'finalized'
-  }).select('courseId date status').lean();
+  const courseById = new Map(courses.map((course) => [String(course._id), course]));
 
   const byCourse = new Map();
   for (const record of records) {
     const session = record.sessionId;
-    if (!session) continue;
     const key = String(session.courseId);
     if (!byCourse.has(key)) {
       const course = courseById.get(key);
@@ -346,7 +372,7 @@ const getAttendance = async (user) => {
   }
 
   const total = records.length;
-  const present = records.filter((r) => r.status === RECORD_STATUS.PRESENT).length;
+  const present = records.filter((record) => record.status === RECORD_STATUS.PRESENT).length;
 
   return {
     rollNumber,
@@ -357,9 +383,9 @@ const getAttendance = async (user) => {
       absent: total - present,
       percentage: total ? Math.round((present / total) * 10000) / 100 : 0
     },
-    courses: [...byCourse.values()].map((c) => ({
-      ...c,
-      percentage: c.total ? Math.round((c.present / c.total) * 10000) / 100 : 0
+    courses: [...byCourse.values()].map((entry) => ({
+      ...entry,
+      percentage: entry.total ? Math.round((entry.present / entry.total) * 10000) / 100 : 0
     }))
   };
 };

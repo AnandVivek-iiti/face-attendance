@@ -7,15 +7,21 @@ export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const nextId = useRef(1);
 
+  // Dismissing flags the toast as leaving so it can play its exit animation,
+  // then removes it once that animation (0.22s in index.css) is done.
   const dismiss = useCallback((id) => {
-    setToasts((current) => current.filter((toast) => toast.id !== id));
+    setToasts((current) => current.map((toast) => (toast.id === id ? { ...toast, leaving: true } : toast)));
+    window.setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 220);
   }, []);
 
   const push = useCallback(
     (message, tone = 'success') => {
       const id = nextId.current++;
-      setToasts((current) => [...current, { id, message, tone }]);
-      window.setTimeout(() => dismiss(id), tone === 'error' ? 7000 : 4000);
+      const duration = tone === 'error' ? 7000 : 4000;
+      setToasts((current) => [...current, { id, message, tone, duration }]);
+      window.setTimeout(() => dismiss(id), duration);
     },
     [dismiss],
   );
@@ -39,7 +45,9 @@ export function ToastProvider({ children }) {
             <div
               key={toast.id}
               role={isError ? 'alert' : 'status'}
-              className={`pointer-events-auto flex items-start gap-2 rounded-ctl border px-3 py-2 text-sm shadow-glass animate-toast ${
+              className={`pointer-events-auto relative flex items-start gap-2 overflow-hidden rounded-ctl border px-3 py-2 text-sm shadow-glass ${
+                toast.leaving ? 'toast-out' : 'animate-toast'
+              } ${
                 isError
                   ? 'border-bad-line bg-[rgba(60,14,12,0.9)] text-bad'
                   : 'border-ok-line bg-[rgba(1,59,0,0.94)] text-ok'
@@ -50,6 +58,7 @@ export function ToastProvider({ children }) {
               <button type="button" onClick={() => dismiss(toast.id)} aria-label="Dismiss message">
                 <X size={14} />
               </button>
+              <span aria-hidden="true" className="toast-timer" style={{ animationDuration: `${toast.duration}ms` }} />
             </div>
           );
         })}

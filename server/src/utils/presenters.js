@@ -110,6 +110,20 @@ const sessionSummary = (value, courseDoc) => ({
   createdAt: value.createdAt
 });
 
+// The stored analysis keeps every detected face's embedding so a later
+// assignment can reuse it. Those vectors are biometric data and the browser has
+// no use for them, so they are removed from anything sent to a client.
+const publicAnalysis = (analysis) => {
+  if (!analysis) return null;
+  const plain = typeof analysis.toObject === 'function' ? analysis.toObject() : analysis;
+  return {
+    ...plain,
+    faces: Array.isArray(plain.faces)
+      ? plain.faces.map(({ embedding, ...rest }) => rest)
+      : plain.faces
+  };
+};
+
 /**
  * Full session payload. Faces are distributed onto their image and also kept in
  * a flat list, so a client can render either the gallery or a face list.
@@ -133,7 +147,7 @@ const session = (value, courseDoc) => {
     imageQuality: analysis ? analysis.imageQuality ?? deriveQuality(images) : null,
     faces: analysis && Array.isArray(analysis.faces) ? analysis.faces.map(face) : [],
     failure: value.failure && value.failure.code ? value.failure : null,
-    analysis,
+    analysis: publicAnalysis(analysis),
     updatedAt: value.updatedAt
   };
 };
@@ -147,4 +161,4 @@ function deriveQuality(images) {
   return poor ? { ...poor.imageQuality, status: 'poor' } : null;
 }
 
-module.exports = { student, course, face, image, evidence, record, counts, session, sessionSummary };
+module.exports = { publicAnalysis, student, course, face, image, evidence, record, counts, session, sessionSummary };

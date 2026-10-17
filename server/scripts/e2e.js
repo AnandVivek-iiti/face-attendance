@@ -112,9 +112,9 @@ const main = async () => {
     // 3. Professor logs in with the auto password.
     const profLogin = await request(`${API}/api/auth/login`, {
       method: 'POST',
-      body: { email: 'pradeep.kundu@iiti.ac.in', password: 'IIT@INDORE#ME217' }
+      body: { email: process.env.E2E_PROFESSOR_EMAIL || 'pradeep.kundu@iiti.ac.in', password: process.env.E2E_PROFESSOR_PASSWORD || '' }
     });
-    if (profLogin.status === 200) ok('professor login', 'IIT@INDORE#ME217');
+    if (profLogin.status === 200) ok('professor login');
     else fail('professor login', `${profLogin.status} ${profLogin.text.slice(0, 200)}`);
     const profToken = profLogin.json?.data?.token;
 

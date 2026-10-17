@@ -15,6 +15,7 @@ import {
   createCourse,
   deleteCourse,
   getCourses,
+  getProfessors,
   updateCourse,
   addProfessor,
   getDepartments,
@@ -78,6 +79,7 @@ export default function AdminCoursesPage() {
   const toast = useToast();
   const { data: courses = [], loading, error, reload } = useAsync(getCourses, [], {});
   const { data: departments = [] } = useAsync(getDepartments, [], {});
+  const { data: professors = [], reload: reloadProfessors } = useAsync(getProfessors, [], {});
 
   const [dialog, setDialog] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -106,7 +108,7 @@ export default function AdminCoursesPage() {
       <Card
         title="Courses"
         action={
-          <Button size="sm" icon={Plus} onClick={() => setDialog({ type: 'course', initial: emptyCourse })}>
+          <Button size="sm" icon={Plus} onClick={() => setDialog({ type: 'course', id: null, initial: emptyCourse })}>
             New course
           </Button>
         }
@@ -119,15 +121,33 @@ export default function AdminCoursesPage() {
               <li key={course.id} className="flex items-center gap-3 py-3">
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-ink">
-                    {course.courseCode} — {course.courseName}
+                    {course.code} — {course.name}
                   </p>
                   <p className="text-sm text-muted">
                     Sem {course.semester} · Section {course.section} · Room {course.room || '—'} ·{' '}
-                    {course.professor?.name || course.professorName || 'Unassigned'}
+                    {course.professorName || 'Unassigned'}
                   </p>
                 </div>
-                <Badge tone="neutral">{course.enrolledCount ?? 0} students</Badge>
-                <Button size="sm" variant="ghost" icon={Pencil} onClick={() => setDialog({ type: 'course', initial: course })}>
+                <Badge tone="neutral">{course.studentCount ?? 0} students</Badge>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={Pencil}
+                  onClick={() =>
+                    setDialog({
+                      type: 'course',
+                      id: course.id,
+                      initial: {
+                        courseCode: course.code,
+                        courseName: course.name,
+                        professorId: course.professorId || '',
+                        semester: course.semester == null ? '' : String(course.semester),
+                        section: course.section || '',
+                        room: course.room || '',
+                      },
+                    })
+                  }
+                >
                   Edit
                 </Button>
                 <Button size="sm" variant="ghost" icon={Trash2} onClick={() => run(() => deleteCourse(course.id), 'Course removed.')} disabled={busy}>
@@ -140,7 +160,7 @@ export default function AdminCoursesPage() {
       </Card>
 
       <Card className="mt-5" title="Professors">
-        <ProfessorList onCreated={() => reload({ silent: true })} />
+        <ProfessorList onCreated={reloadProfessors} />
       </Card>
 
       <Card className="mt-5" title="Departments">
@@ -149,21 +169,27 @@ export default function AdminCoursesPage() {
 
       <Modal
         open={dialog?.type === 'course'}
-        title={dialog?.initial?.courseId ? 'Edit course' : 'New course'}
+        title={dialog?.id ? 'Edit course' : 'New course'}
         onClose={() => setDialog(null)}
       >
         {dialog?.type === 'course' && (
           <CourseForm
             initial={dialog.initial}
-            professors={courses.flatMap((c) => (c.professor ? [c.professor] : []))}
+            professors={professors}
             onCancel={() => setDialog(null)}
             onSave={async (form) => {
               const payload = {
-                ...form,
+                courseCode: form.courseCode.trim(),
+                courseName: form.courseName.trim(),
+                professorId: form.professorId,
                 semester: Number(form.semester),
+                section: form.section.trim(),
+                room: form.room.trim() || null,
               };
-              if (dialog.initial?.courseId) await updateCourse(dialog.initial.courseId, payload);
-              else await createCourse(payload);
+              await run(
+                () => (dialog.id ? updateCourse(dialog.id, payload) : createCourse(payload)),
+                dialog.id ? 'Course updated.' : 'Course created.',
+              );
             }}
           />
         )}
@@ -177,13 +203,20 @@ function ProfessorList({ onCreated }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ name: '', email: '' });
   const [busy, setBusy] = useState(false);
+  // The server returns a one-time password only in the create response.
+  const [created, setCreated] = useState(null);
+
+  const close = () => {
+    setOpen(false);
+    setCreated(null);
+  };
 
   const submit = async () => {
     setBusy(true);
     try {
-      await addProfessor(form);
-      toast.success(`${form.name} added. Their password is set when assigned to a course.`);
-      setOpen(false);
+      const result = await addProfessor(form);
+      toast.success(`${form.name} added.`);
+      setCreated({ name: form.name, email: form.email, password: result?.temporaryPassword ?? '' });
       setForm({ name: '', email: '' });
       onCreated();
     } catch (err) {
@@ -198,18 +231,35 @@ function ProfessorList({ onCreated }) {
       <Button size="sm" icon={UserPlus} onClick={() => setOpen(true)}>
         Add professor
       </Button>
-      <Modal open={open} title="Add professor" onClose={() => setOpen(false)}>
-        <div className="space-y-3">
-          <TextInput label="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-          <TextInput label="Email (@iiti.ac.in)" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
-          <p className="text-xs text-muted">
-            The password is auto-derived from their first course: IIT@INDORE#&lt;COURSE CODE&gt;.
-          </p>
-          <div className="flex justify-end gap-2 pt-2">
-            <Button onClick={() => setOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={submit} loading={busy}>Add professor</Button>
+      <Modal open={open} title={created ? 'Professor added' : 'Add professor'} onClose={close}>
+        {created ? (
+          <div className="space-y-3">
+            <p className="text-sm text-ink">
+              {created.name} ({created.email}) can now sign in with this temporary password.
+            </p>
+            <p className="select-all rounded-ctl border border-line px-3 py-2 font-mono text-sm text-ink">
+              {created.password || 'Not returned by the server'}
+            </p>
+            <p className="text-xs text-muted">
+              It is shown only once. Share it securely; the professor must change it at first sign-in.
+            </p>
+            <div className="flex justify-end pt-2">
+              <Button variant="primary" onClick={close}>Done</Button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-3">
+            <TextInput label="Name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+            <TextInput label="Email (@iiti.ac.in)" value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} />
+            <p className="text-xs text-muted">
+              A one-time password is generated and shown to you after the professor is added.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button onClick={close}>Cancel</Button>
+              <Button variant="primary" onClick={submit} loading={busy}>Add professor</Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -80,7 +80,13 @@ const addImages = async (id, user, files) => {
   if (!files || files.length === 0) {
     throw new AppError('At least one image is required in the "images" field', 400, { code: 'INVALID_UPLOAD' });
   }
-  const session = await getUploadableSession(id, user);
+  let session;
+  try {
+    session = await getUploadableSession(id, user);
+  } catch (error) {
+    await storageService.removeFiles(files.map((file) => file.path));
+    throw error;
+  }
 
   if (session.uploadedImages.length + files.length > LIMITS.IMAGES_PER_SESSION) {
     await storageService.removeFiles(files.map((file) => file.path));
@@ -130,7 +136,7 @@ const buildReview = async (session) => {
     AttendanceRecord.find({ sessionId: session._id }).populate('studentId', 'studentId rollNumber name').lean()
   ]);
   records.sort((a, b) =>
-    String(a.studentId.rollNumber).localeCompare(String(b.studentId.rollNumber), undefined, { numeric: true })
+    String(a.studentId?.rollNumber ?? '').localeCompare(String(b.studentId?.rollNumber ?? ''), undefined, { numeric: true })
   );
   const warnings = (session.analysis && session.analysis.warnings) || [];
   return {

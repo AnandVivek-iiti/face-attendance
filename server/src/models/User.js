@@ -16,9 +16,14 @@ const userSchema = new mongoose.Schema(
       semester: { type: Number, min: 1, max: 12, default: null },
       department: { type: String, trim: true, default: null }
     },
-    // Which course auto-generated this professor's password. Null means a real
-    // password was set by hand, so a later course must not overwrite it.
-    passwordSetByCourse: { type: String, default: null }
+    // Legacy: older versions derived a professor's password from a course code
+    // (guessable). Kept only so scripts/rotate-professor-passwords.js can find
+    // and replace those accounts' passwords. New accounts never set it.
+    passwordSetByCourse: { type: String, default: null },
+    // True while the password is an admin-issued temporary one.
+    mustChangePassword: { type: Boolean, default: false },
+    // Tokens issued before this moment are rejected (set on password change).
+    passwordChangedAt: { type: Date, default: null }
   },
   { timestamps: true }
 );
@@ -28,6 +33,8 @@ userSchema.index({ studentId: 1 }, { unique: true, sparse: true });
 userSchema.set('toJSON', {
   transform: (doc, ret) => {
     delete ret.passwordHash;
+    delete ret.passwordChangedAt;
+    delete ret.passwordSetByCourse;
     delete ret.__v;
     return ret;
   }

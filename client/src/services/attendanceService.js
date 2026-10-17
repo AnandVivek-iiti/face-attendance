@@ -23,9 +23,13 @@ export async function analyzeSession(sessionId) {
 
 export async function getSession(sessionId) {
   const payload = unwrap(await http.get(`/api/attendance/sessions/${sessionId}`));
-  // The server returns { session, records, warnings }. Keep the records — they
-  // are the roster rows the professor reviews.
-  return normalizeSession({ ...(payload.session ?? payload), records: payload.records ?? payload.session?.records ?? [] });
+  // The server returns { session, records, warnings }. Keep the top-level
+  // records (roster rows the professor reviews) and warnings.
+  return normalizeSession({
+    ...(payload.session ?? payload),
+    records: payload.records ?? payload.session?.records ?? [],
+    warnings: payload.warnings ?? payload.session?.warnings ?? [],
+  });
 }
 
 export async function updateRecord(sessionId, studentId, values) {
@@ -67,6 +71,7 @@ export async function deleteSession(sessionId) {
 }
 
 export async function getHistory() {
-  const payload = unwrap(await http.get('/api/attendance/history'));
-  return asList(payload, 'history', 'sessions').map(normalizeHistoryItem);
+  const payload = unwrap(await http.get('/api/attendance/history', { params: { limit: 100 } }));
+  // Students get `records`, professors/admins get `sessions`. Support both.
+  return asList(payload, 'records', 'history', 'sessions').map(normalizeHistoryItem);
 }

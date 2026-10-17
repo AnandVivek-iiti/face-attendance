@@ -49,6 +49,9 @@ const recordSchema = new mongoose.Schema(
     faceQuality: { type: Number, default: null },
     aiStudentId: { type: String, default: null },
     evidence: { type: [evidenceSchema], default: [] },
+    // Set when a professor deliberately discards a face rather than marking the
+    // student absent - keeps an audit trail without changing the status meaning.
+    ignored: { type: Boolean, default: false },
     reviewedByProfessor: { type: Boolean, default: false },
     reviewedAt: { type: Date, default: null },
   },

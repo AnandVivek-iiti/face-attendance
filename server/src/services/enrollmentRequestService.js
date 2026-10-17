@@ -56,9 +56,30 @@ const embedImage = async (imagePath) => {
 };
 
 /**
+ * Atomically move a request out of "pending". Two professors (or a double click)
+ * approving at once would otherwise both pass the status check and both write
+ * the student and embedding.
+ */
+const claimReview = async (request, status, user, note) => {
+  const claimed = await EnrollmentRequest.findOneAndUpdate(
+    { _id: request._id, status: ENROLLMENT_REQUEST_STATUS.PENDING },
+    { $set: { status, reviewedBy: user._id, reviewedAt: new Date(), note } },
+    { new: true }
+  );
+  if (!claimed) throw new AppError('This request has already been reviewed', 409, { code: 'ALREADY_REVIEWED' });
+  return claimed;
+};
+
+const releaseReview = (request) =>
+  EnrollmentRequest.updateOne(
+    { _id: request._id },
+    { $set: { status: ENROLLMENT_REQUEST_STATUS.PENDING, reviewedBy: null, reviewedAt: null, note: null } }
+  ).catch((error) => console.error('Could not reopen enrollment request', error));
+
+/**
  * Approve: turn the request photo into a real roster entry. The embedding is
  * derived here so the student can be matched from the very first classroom
- * photograph — they never need a separate registration photo later.
+ * photograph - they never need a separate registration photo later.
  */
 const approve = async (id, user, note) => {
   const { request, course } = await findOwnedRequest(id, user);
@@ -66,47 +87,60 @@ const approve = async (id, user, note) => {
     throw new AppError('This request has already been reviewed', 409, { code: 'ALREADY_REVIEWED' });
   }
 
-  let embedding;
+  let generated;
   try {
-    const generated = await embedImage(request.imagePath);
-    embedding = generated.embedding;
+    generated = await embedImage(request.imagePath);
   } catch (error) {
     throw new AppError('Could not read a face from that photo. Ask the student to upload a clearer one.', 422, {
       code: 'FACE_EMBEDDING_FAILED'
     });
   }
+  const { embedding, embeddingModel } = generated;
 
-  let student = await Student.findOne({ rollNumber: request.rollNumber });
-  if (student) {
-    // Already on some roster: move them into this course's cohort.
-    student.semester = course.semester;
-    student.section = course.section;
-    student.department = request.department || student.department;
-    student.name = request.name || student.name;
-    student.active = true;
-    await student.save();
-    await studentService.appendEmbedding(student, embedding, null);
-  } else {
-    student = await Student.create({
-      studentId: request.rollNumber,
-      rollNumber: request.rollNumber,
-      name: request.name,
-      department: request.department,
-      semester: course.semester,
-      section: course.section,
-      faceEmbeddings: [embedding],
-      embeddingModel: null,
-      hasFaceEmbedding: true
-    });
+  // Check for conflicts before touching anything, so a refusal leaves no
+  // half-applied change (a new face vector on someone else's record, say).
+  const existing = await Student.findOne({ rollNumber: request.rollNumber });
+  if (existing) {
+    const claimedBy = await User.exists({ studentId: String(existing._id), _id: { $ne: request.userId } });
+    if (claimedBy) {
+      throw new AppError('This roll number is already linked to another account', 409, {
+        code: 'ROLL_NUMBER_CLAIMED'
+      });
+    }
   }
 
-  await User.updateOne({ _id: request.userId }, { $set: { studentId: student._id } });
+  const reviewed = await claimReview(request, ENROLLMENT_REQUEST_STATUS.APPROVED, user, note || null);
 
-  request.status = ENROLLMENT_REQUEST_STATUS.APPROVED;
-  request.reviewedBy = user._id;
-  request.reviewedAt = new Date();
-  request.note = note || null;
-  await request.save();
+  let student;
+  try {
+    student = existing;
+    if (student) {
+      // Already on some roster: move them into this course's cohort.
+      student.semester = course.semester;
+      student.section = course.section;
+      student.department = request.department || student.department;
+      student.name = request.name || student.name;
+      student.active = true;
+      await student.save();
+      await studentService.appendEmbedding(student, embedding, embeddingModel || null);
+    } else {
+      student = await Student.create({
+        studentId: request.rollNumber,
+        rollNumber: request.rollNumber,
+        name: request.name,
+        department: request.department,
+        semester: course.semester,
+        section: course.section,
+        faceEmbeddings: [embedding],
+        embeddingModel: embeddingModel || null,
+        hasFaceEmbedding: true
+      });
+    }
+    await User.updateOne({ _id: request.userId }, { $set: { studentId: String(student._id) } });
+  } catch (error) {
+    await releaseReview(request);
+    throw error;
+  }
 
   await auditService.record(
     auditService.userEntry(user, {
@@ -115,19 +149,17 @@ const approve = async (id, user, note) => {
     })
   );
 
-  return { request: request.toJSON(), student: student.toJSON ? student.toJSON() : student };
+  return { request: reviewed.toJSON(), student: student.toJSON ? student.toJSON() : student };
 };
 
 const reject = async (id, user, note) => {
   const { request, course } = await findOwnedRequest(id, user);
-  if (request.status !== ENROLLMENT_REQUEST_STATUS.PENDING) {
-    throw new AppError('This request has already been reviewed', 409, { code: 'ALREADY_REVIEWED' });
-  }
-  request.status = ENROLLMENT_REQUEST_STATUS.REJECTED;
-  request.reviewedBy = user._id;
-  request.reviewedAt = new Date();
-  request.note = note || 'Not approved';
-  await request.save();
+  const reviewed = await claimReview(request, ENROLLMENT_REQUEST_STATUS.REJECTED, user, note || 'Not approved');
+
+  // A rejected applicant's face photo has no further purpose; do not keep it.
+  await storageService.removeStored(request.imagePath).catch((error) => {
+    console.error('Could not delete rejected enrollment photo', error.message);
+  });
 
   await auditService.record(
     auditService.userEntry(user, {
@@ -136,7 +168,7 @@ const reject = async (id, user, note) => {
     })
   );
 
-  return { request: request.toJSON() };
+  return { request: reviewed.toJSON() };
 };
 
 /** A student's own request statuses, so they can see where they stand. */

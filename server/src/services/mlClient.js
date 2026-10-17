@@ -90,6 +90,11 @@ const post = async (path, form) => {
       body = null;
     }
 
+    // Our credentials or the route are wrong: that is a server misconfiguration,
+    // not a bad image, so do not blame the user's photo for it.
+    if ([401, 403, 404].includes(response.status)) {
+      throw new AppError('ML service rejected the server request', 502, { code: 'ML_AUTH_FAILED' });
+    }
     if (response.status >= 400 && response.status < 500) {
       throw new AppError(rejectionMessage(body), 422, { code: rejectionCode(body) || 'ML_REJECTED' });
     }

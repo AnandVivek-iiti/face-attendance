@@ -18,7 +18,20 @@ const institutionalEmail = z.string().trim().toLowerCase().email();
 
 const login = z.object({
   email: institutionalEmail,
-  password: z.string().min(8).max(200, 'Password must be at least 8 characters')
+  // The service reports a too-short password with its own error code.
+  password: z.string().min(1, 'Password is required').max(200, 'Password is too long')
+});
+
+// bcrypt only reads the first 72 bytes, so anything longer would be silently
+// truncated. Reject it instead of giving a false sense of strength.
+const newPassword = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .refine((value) => Buffer.byteLength(value, 'utf8') <= 72, 'Password must be at most 72 bytes');
+
+const changePassword = z.object({
+  currentPassword: z.string().max(200).optional(),
+  newPassword
 });
 
 const studentFields = {
@@ -54,7 +67,8 @@ const createCourse = z.object({
   semester,
   section,
   department: text(20).nullable().optional(),
-  room: text(20).nullable().optional()
+  room: text(20).nullable().optional(),
+  rollNumberPattern: z.string().trim().max(120).nullable().optional()
 });
 
 const updateCourse = createCourse.partial().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
@@ -66,7 +80,12 @@ const updateDepartment = createDepartment.partial().refine((value) => Object.key
 // they are assigned to, so it is not accepted here.
 const createProfessor = z.object({
   name: text(120),
-  email: institutionalEmail
+  // Sign-in only accepts the institutional domain, so a professor registered on
+  // any other domain could never log in.
+  email: institutionalEmail.refine(
+    (value) => value.endsWith(`@${IIIT_EMAIL_DOMAIN}`),
+    `Use an @${IIIT_EMAIL_DOMAIN} email address`
+  )
 });
 
 // Student builds their profile: picks year/sem/dept/course, types their roll
@@ -78,7 +97,7 @@ const studentProfile = z.object({
   year: year.optional(),
   semester: semester.optional(),
   department: text(100),
-  courseId: z.string().trim().min(1).optional()
+  courseId: objectId
 });
 
 const reviewEnrollmentRequest = z.object({
@@ -92,9 +111,12 @@ const createSession = z.object({ courseId: objectId, date: dateString.optional()
 const updateRecord = z
   .object({
     status: z.enum(['present', 'absent']).optional(),
+    ignored: z.boolean().optional(),
     note: z.string().trim().max(500).optional()
   })
-  .refine((value) => value.status !== undefined, { message: 'status is required' });
+  .refine((value) => value.status !== undefined || value.ignored !== undefined, {
+    message: 'status or ignored is required'
+  });
 
 // Assigning a detected face to a roll number. When the roll number is new the
 // student is created on the spot, which is how the roster is built from photos.
@@ -132,6 +154,7 @@ const history = z.object({
 
 module.exports = {
   login,
+  changePassword,
   createStudent,
   updateStudent,
   listStudents,

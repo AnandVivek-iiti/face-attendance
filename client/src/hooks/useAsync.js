@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getErrorMessage } from '../utils/errors';
 
 export function useAsync(fn, deps = [], { enabled = true } = {}) {
-  const [state, setState] = useState({ data: null, loading: enabled, error: null });
+  const [state, setState] = useState({ data: undefined, loading: enabled, error: null });
   const fnRef = useRef(fn);
   fnRef.current = fn;
   const tick = useRef(0);

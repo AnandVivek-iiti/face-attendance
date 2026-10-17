@@ -96,9 +96,9 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 **Windows CMD:**
 ```bat
 cd ml-service
-python -m venv .venv                      & rem once
-.venv\Scripts\activate.bat                & rem every new terminal
-pip install -r requirements.txt           & rem once
+python -m venv .venv
+.venv\Scripts\activate.bat
+pip install -r requirements.txt         
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 

@@ -15,7 +15,8 @@ import { formatDate } from '../utils/format';
 function RequestCard({ request, onDecide }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
-  const imageUrl = assetUrl(request.imagePath);
+  // imagePath is a storage-relative path; the file is served from /api/files.
+  const imageUrl = request.imagePath ? assetUrl(`/api/files/${request.imagePath}`) : '';
 
   const act = async (action) => {
     setBusy(true);

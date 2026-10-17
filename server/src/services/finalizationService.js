@@ -27,7 +27,7 @@ const finalizeSession = async (id, user) => {
   if (pending.length > 0) {
     throw new AppError('All records marked for review must be resolved before finalizing', 409, {
       code: 'REVIEW_PENDING',
-      details: { pendingStudentIds: pending.map((record) => record.studentId.studentId) }
+      details: { pendingStudentIds: pending.map((record) => record.studentId?.studentId ?? null) }
     });
   }
 
