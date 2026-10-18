@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 const FRAMES = ['|', '/', '-', '\\'];
 
-/** Classic one-character terminal spinner. Fixed 1ch width so nothing shifts. */
+// Classic one-character terminal spinner.
 export default function AsciiSpinner({ className = '' }) {
   const [frame, setFrame] = useState(0);
   useEffect(() => {

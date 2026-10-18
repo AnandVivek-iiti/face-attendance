@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 
-// url -> 'ok' | 'error' once settled; url -> Promise while in flight. One classroom
-// photo backs dozens of face crops, so it is fetched and decoded exactly once.
+// url -> 'ok' | 'error' once settled; url -> Promise while in flight.
 const settled = new Map();
 const inflight = new Map();
 
@@ -20,8 +19,7 @@ export function preloadImage(url) {
           resolve(state);
         };
         element.onload = () => {
-          // decode() resolves only when the pixels are ready to paint, so the
-          // crop never shows half-rendered.
+          // decode() resolves only when the pixels are ready to paint, so the crop never shows half-rendered.
           const decoded = element.decode ? element.decode().catch(() => {}) : Promise.resolve();
           decoded.then(() => finish('ok'));
         };
@@ -33,7 +31,7 @@ export function preloadImage(url) {
   return inflight.get(url);
 }
 
-/** 'loading' until the image is FULLY loaded and decoded, then 'ok' (or 'error'). No url = still 'loading'. */
+// 'loading' until the image is FULLY loaded and decoded, then 'ok' (or 'error').
 export function useImageReady(url) {
   const [state, setState] = useState(() => (url && settled.has(url) ? 'ok' : 'loading'));
 

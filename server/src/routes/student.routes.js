@@ -21,11 +21,7 @@ router.get(
 );
 router.post('/', authorizeRole(ROLES.ADMIN), validate({ body: schemas.createStudent }), controller.create);
 
-// Student self-service. Registered before /:id so "profile" is not read as an id.
-// multer must run BEFORE validate: on a multipart request req.body is empty until
-// multer has parsed it, so validating first rejects every request with a 400. It
-// also answers while the browser is still sending the upload, which the dev proxy
-// surfaces as ERR_CONNECTION_RESET.
+// Student self-service.
 router.post(
   '/profile',
   authorizeRole(ROLES.STUDENT),

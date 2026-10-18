@@ -18,7 +18,6 @@ export function AuthProvider({ children }) {
   }, []);
 
   // Completes the Google redirect: the server hands the browser a bare JWT.
-  // Persist it first so the http interceptor attaches it, then resolve the user.
   const signInWithToken = useCallback(async (token) => {
     saveAuth({ token });
     const user = await authService.me();
@@ -33,8 +32,15 @@ export function AuthProvider({ children }) {
     setAuth(null);
   }, []);
 
-  // Re-read the student's canonical profile state from the server (used right
-  // after profile setup saves, so the gate opens without forcing a re-login).
+  // Persist a partial session update (e.g.
+  const applySession = useCallback(({ token, user } = {}) => {
+    const current = loadAuth() ?? {};
+    const next = { ...current, ...(token ? { token } : {}), ...(user ? { user } : {}) };
+    saveAuth(next);
+    setAuth(next);
+  }, []);
+
+  // Re-read the student's canonical profile state from the server (used right after profile setup saves, so the gate opens without forcing a...
   const refreshUser = useCallback(async () => {
     const current = loadAuth();
     if (!current?.user || current.user.role !== 'student') return current?.user ?? null;
@@ -64,9 +70,10 @@ export function AuthProvider({ children }) {
       signIn,
       signInWithToken,
       signOut,
+      applySession,
       refreshUser,
     }),
-    [auth, signIn, signInWithToken, signOut, refreshUser],
+    [auth, signIn, signInWithToken, signOut, applySession, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

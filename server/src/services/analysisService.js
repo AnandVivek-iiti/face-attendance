@@ -53,9 +53,7 @@ const describeImage = (image) => ({
   message: (image.quality && image.quality.message) || DEFAULT_QUALITY_MESSAGE
 });
 
-// Faces arrive flat, with the image index encoded in faceId ("img2_face_003")
-// when more than one image was sent. Group them back per image so we can store
-// quality and evidence together.
+// Faces arrive flat, with the image index encoded in faceId ("img2_face_003") when more than one image was sent.
 const groupFacesByImage = (faces, images) => {
   const byImage = images.map(() => []);
   for (const face of faces) {
@@ -109,8 +107,7 @@ const persistRecords = async (sessionId, outcome) => {
     }));
   if (operations.length) await AttendanceRecord.bulkWrite(operations);
 
-  // Roster can shrink between sessions (student deactivated). Drop records that
-  // no longer belong so counts and the CSV stay consistent.
+  // Roster can shrink between sessions (student deactivated).
   await AttendanceRecord.deleteMany({
     sessionId,
     studentId: { $nin: outcome.records.map((record) => record.student) },
@@ -128,7 +125,6 @@ const auditActionFor = (status) => {
 const runAnalysis = async (session, user) => {
   const course = await courseService.getById(session.courseId);
   // The roster is the students already enrolled in this course's semester/section.
-  // On a course's first session this is empty and every face comes back unknown.
   const enrolled = await studentService.listEnrolledForCourse(course);
   const { gallery, embeddingModel, studentsWithoutEmbedding } = buildGallery(enrolled);
 
@@ -148,8 +144,7 @@ const runAnalysis = async (session, user) => {
     gallery,
     embeddingModel,
     includeEmbeddings: true,
-    // A first session has no roster yet; still run detection so the professor
-    // can build the list by assigning each detected face.
+    // A first session has no roster yet; still run detection so the professor can build the list by assigning each detected face.
     allowEmptyStudents: true
   });
 
@@ -181,8 +176,7 @@ const runAnalysis = async (session, user) => {
   const reviewedIds = await persistRecords(session._id, outcome);
   const counts = await recordService.tally(session._id);
 
-  // Keep the embeddings the ML returned so assigning a face later can promote
-  // it to a reference vector without re-running recognition.
+  // Keep the embeddings the ML returned so assigning a face later can promote it to a reference vector without re-running recognition.
   const allFaces = usable.flatMap((entry) =>
     facesByImage[images.indexOf(entry)].map((face) => ({
       faceId: face.faceId,

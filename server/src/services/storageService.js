@@ -91,9 +91,7 @@ const commitUploads = async (files, subdirectory, namePrefix = '') => {
   return stored;
 };
 
-// Write an in-memory buffer (e.g. a face crop returned by the ML service) as a
-// stored file, using the same `<namePrefix><uuid><ext>` naming as uploads so it
-// passes the storage allowlist.
+// Write an in-memory buffer (e.g.
 const writeBuffer = async (buffer, subdirectory, namePrefix = '', extension = '.jpg') => {
   const targetDir = path.join(root, subdirectory);
   await fs.promises.mkdir(targetDir, { recursive: true });

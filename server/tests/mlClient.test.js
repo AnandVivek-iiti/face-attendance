@@ -57,6 +57,27 @@ test("maps connection failure to 503", async () => {
   });
 });
 
+test("retries a transient failure and then succeeds", async () => {
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return calls < 3 ? jsonResponse({}, 503) : jsonResponse(validBody);
+  };
+  const result = await mlClient.analyzeClassroom(input);
+  assert.equal(calls, 3);
+  assert.equal(result.faces[0].studentId, "ME23XXXX");
+});
+
+test("does not retry a deterministic 4xx rejection", async () => {
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    return jsonResponse({ detail: "No face detected" }, 400);
+  };
+  await assert.rejects(mlClient.generateEmbedding(embeddingInput), { statusCode: 422 });
+  assert.equal(calls, 1);
+});
+
 test("maps abort to 504", async () => {
   global.fetch = (url, { signal }) =>
     new Promise((resolve, reject) => {

@@ -7,8 +7,7 @@ const ASSET_BASE = (import.meta.env.VITE_ASSET_BASE_URL || '').replace(/\/$/, ''
 export function unwrap(response) {
   const body = response?.data;
   if (body && typeof body === 'object' && !Array.isArray(body) && 'data' in body) {
-    // The server pairs `data` with `pagination` on list endpoints. Only treat the
-    // payload as wrapped when `data` is the sole meaningful key.
+    // The server pairs `data` with `pagination` on list endpoints.
     const keys = Object.keys(body).filter(
       (key) => key !== 'success' && key !== 'message' && key !== 'pagination',
     );
@@ -41,8 +40,6 @@ export function assetUrl(url) {
     ? url
     : `${ASSET_BASE}${url.startsWith('/') ? '' : '/'}${url}`;
   // File URLs are served behind auth (/api/files requires professor/admin).
-  // <img> and Image() send no Authorization header, so the JWT travels as a
-  // query param the files route explicitly accepts.
   if (absolute.includes('/api/files/')) {
     const token = loadAuth()?.token;
     if (token) return `${absolute}${absolute.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
@@ -63,6 +60,8 @@ export function normalizeUser(raw = {}) {
     role: String(raw.role ?? '').toLowerCase(),
     studentId: raw.studentId ?? raw.rollNumber ?? null,
     department: raw.department ?? profile?.department ?? '',
+    emailVerified: Boolean(raw.emailVerified),
+    mustChangePassword: Boolean(raw.mustChangePassword),
     profile,
     profileComplete: raw.profileComplete ?? Boolean(profile?.rollNumber),
   };
@@ -78,8 +77,7 @@ export function normalizeStudent(raw = {}) {
   let faceImages = (raw.faceImages ?? raw.faces ?? [])
     .map((item) => (typeof item === 'string' ? { url: item } : item))
     .map((item) => ({ id: idOf(item) ?? item.url, url: assetUrl(item.url ?? item.path) }));
-  // The server stores a single `registeredImage` relative path (served from
-  // /api/files), not an array, so synthesize one entry when no array is sent.
+  // The server stores a single `registeredImage` relative path (served from /api/files), not an array, so synthesize one entry when no array is...
   if (!faceImages.length && raw.registeredImage) {
     faceImages = [{ id: 'registered', url: assetUrl(`/api/files/${raw.registeredImage}`) }];
   }
@@ -183,8 +181,7 @@ function deriveQuality(images) {
 }
 
 function normalizeRecord(raw) {
-  // The server sends flat roll number/name alongside the status. Older shapes
-  // nested them under a populated student object.
+  // The server sends flat roll number/name alongside the status.
   const studentId = raw.studentId ?? raw.student?.studentId ?? raw.student?.rollNumber ?? raw.rollNumber;
   const present = raw.status ?? (typeof raw.present === 'boolean' ? (raw.present ? 'present' : 'absent') : undefined);
   return {
@@ -200,8 +197,7 @@ function normalizeRecord(raw) {
 
 export function normalizeSession(raw = {}) {
   const course = courseRef(raw.course ?? raw.courseId);
-  // The server now sends each image with its own faces and quality already
-  // attached, so the flat fallback is only for older payloads.
+  // The server now sends each image with its own faces and quality already attached, so the flat fallback is only for older payloads.
   const images = (raw.images ?? raw.uploadedImages ?? []).map(normalizeImage);
 
   let imageQuality = raw.imageQuality ? normalizeQuality(raw.imageQuality) : deriveQuality(images);

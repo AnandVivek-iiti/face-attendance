@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { useTheme } from '../utils/theme';
 
-/** Row of colour dots. Arrow keys move between themes, like a radio group. */
+// Row of colour dots.
 export default function ThemeSwitcher({ compact = false, className = '' }) {
   const { theme, setTheme, themes } = useTheme();
   const refs = useRef([]);

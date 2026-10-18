@@ -5,8 +5,7 @@ import { faceQualityLevel } from '../utils/attendance';
 import { decisionConfig } from './ConfidenceBadge';
 
 const palette = {
-  // color  = box outline + label chip (kept dark so white label text stays AA)
-  // accent = the colour that draws the box in and sweeps the scan pulse
+  // color = box outline + label chip (kept dark so white label text stays AA) accent = the colour that draws the box in and sweeps the scan...
   [DECISION.HIGH]: { color: '#007a00', accent: '#3dff3d', fill: 'rgba(0,255,0,0.12)', border: 'solid', icon: CheckCircle2 },
   [DECISION.REVIEW]: { color: '#8a5b09', accent: '#ffb454', fill: 'rgba(138,91,9,0.20)', border: 'dashed', icon: AlertTriangle },
   [DECISION.UNKNOWN]: { color: '#b91c1c', accent: '#ff7b72', fill: 'rgba(185,28,28,0.18)', border: 'dotted', icon: HelpCircle },

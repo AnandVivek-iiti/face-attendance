@@ -1,19 +1,67 @@
 # Root-level gitignore for face-attendance monorepo
 
 # Node / Client
-/node_modules
+node_modules/
 /dist
+build/
+.vite/
+coverage/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
 
-# ML Service
-/__pycache__/
-*.pyc
-.env
+# ML Service (Python)
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
 /.venv/
+venv/
 evaluation-output/
 
-# Storage (face crop images)
+# Environment files and secrets. Never commit real values; keep the templates.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+id_rsa*
+
+# Logs, temp files, caches, editor/OS cruft
+*.log
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local databases and dumps
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+dumps/
+
+# Storage: only the .gitkeep placeholders are tracked. Private uploads (face
+# crops, profile photos, registered faces) must never be committed.
 storage/face-crops/*
+# storage/.gitignore ignores the remaining storage subdirectories.
+
+# Timestamped backups created during audits
+.project-backups/
 
 # Common
 !.gitignore
 !.gitkeep
+
+# Documentation: only README files are shipped. Every other .md (including the
+# local project_understanding.md reference) stays out of the repo.
+*.md
+!README.md

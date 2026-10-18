@@ -27,8 +27,7 @@ function cropStyle(image, size, face, width, pad) {
 
 function Lightbox({ image, size, face, onClose }) {
   useEffect(() => {
-    // Capture phase + stopImmediatePropagation: Esc closes only the lightbox,
-    // not the dialog it was opened from.
+    // Capture phase + stopImmediatePropagation: Esc closes only the lightbox, not the dialog it was opened from.
     const onKey = (event) => {
       if (event.key !== 'Escape') return;
       event.stopImmediatePropagation();
@@ -69,17 +68,11 @@ function Lightbox({ image, size, face, onClose }) {
   );
 }
 
-/**
- * A face cut out of the classroom photo.
- *  - The shimmer keeps running until the photo is FULLY loaded and decoded, then
- *    the crop fades in (no blank / half-loaded thumbnails).
- *  - Click to enlarge (disable with expandable={false}).
- *  - onReady(bool) lets a parent hold actions until the face is actually visible.
- */
+// A face cut out of the classroom photo.
 export default function FaceCrop({ image, size, face, width = 40, className = '', expandable = true, onReady }) {
   const status = useImageReady(image?.url);
   const [open, setOpen] = useState(false);
-  // A failed photo counts as "settled" (shows a ? box) so it never locks the row.
+  // A failed photo counts as "settled" (shows a ?
   const ready = Boolean(image?.url && face) && (status === 'error' || (status === 'ok' && Boolean(size)));
 
   useEffect(() => {

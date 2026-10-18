@@ -32,8 +32,7 @@ class FaceDetector:
     def input_size_for(self, image: np.ndarray) -> tuple[int, int]:
         height, width = image.shape[:2]
         longest = max(height, width)
-        # Never blow a small photo up past the configured size, but keep a floor
-        # so tiny faces in low-resolution photos still get some upscaling.
+        # Never blow a small photo up past the configured size, but keep a floor so tiny faces in low-resolution photos still get some upscaling.
         target = self._max_size if longest >= self._max_size else max(_ceil32(longest), self._min_size)
         scale = target / longest
         return (_ceil32(width * scale), _ceil32(height * scale))  # (w, h)

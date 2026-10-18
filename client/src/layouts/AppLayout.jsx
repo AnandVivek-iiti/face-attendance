@@ -168,8 +168,7 @@ export default function AppLayout() {
   const [open, setOpen] = useState(false);
   const items = navByRole[user.role] ?? navByRole[ROLES.STUDENT];
 
-  // Students with no saved profile details cannot skip setup: every route
-  // except the setup page itself bounces them back to it.
+  // Students with no saved profile details cannot skip setup: every route except the setup page itself bounces them back to it.
   if (!isProfileComplete(user) && location.pathname !== '/student/profile') {
     return <Navigate to="/student/profile" replace />;
   }

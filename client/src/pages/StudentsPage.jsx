@@ -32,8 +32,7 @@ function NewStudentDialog({ open, onClose, onCreated }) {
     event.preventDefault();
     setBusy(true);
     try {
-      // The server keys students on studentId + rollNumber; the admin form uses
-      // the roll number for both.
+      // The server keys students on studentId + rollNumber; the admin form uses the roll number for both.
       const rollNumber = values.rollNumber.trim();
       const student = await createStudent({
         studentId: rollNumber,

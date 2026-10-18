@@ -14,8 +14,13 @@ services:
         generateValue: true
       - key: MONGODB_URI
         sync: false
+      # The ML service is hosted separately (Google Cloud Run, a VM): the free
+      # Render tier cannot fit the model. Use its public URL.
       - key: ML_SERVICE_URL
         sync: false
+      # Must equal the ML service's API_KEY exactly. Do NOT use generateValue
+      # here: it would create a different value on each service and every ML
+      # call would fail with ML_AUTH_FAILED.
       - key: ML_API_KEY
         sync: false
       # The client's public URL (comma-separate extras, e.g. a custom domain).
@@ -34,6 +39,36 @@ services:
         sync: false
       - key: GOOGLE_CALLBACK_URL
         sync: false
+      # Public URL of this API (e.g. https://face-attendance-server.onrender.com).
+      # Used to build the one-time sign-in links emailed to professors.
+      - key: SERVER_URL
+        sync: false
+      # Email providers, tried in order and falling through on failure:
+      # SMTP -> Resend -> SendGrid -> Brevo. Each is used only if configured.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      # Optional: pin a single provider instead of the chain above.
+      - key: EMAIL_PROVIDER
+        sync: false
+      # How long a professor sign-in / invite link stays valid (minutes).
+      - key: EMAIL_LINK_TTL_MINUTES
+        value: "30"
 
   - type: web
     name: face-attendance-client

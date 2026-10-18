@@ -1,8 +1,7 @@
 const fs = require('fs');
 const AppError = require('../utils/AppError');
 
-// When a multipart request fails validation the uploaded temp files would be
-// orphaned. Remove them (best effort) before rejecting.
+// When a multipart request fails validation the uploaded temp files would be orphaned.
 const discardUploads = (req) => {
   const files = req.files || (req.file ? [req.file] : []);
   for (const file of files) {
@@ -10,8 +9,7 @@ const discardUploads = (req) => {
   }
 };
 
-// Express 5 exposes req.query as a getter-only property, so plain assignment
-// throws. Redefine it as an own property so both Express 4 and 5 work.
+// Express 5 exposes req.query as a getter-only property, so plain assignment throws.
 const assign = (req, key, value) => {
   if (key === 'query') {
     Object.defineProperty(req, 'query', { value, writable: true, configurable: true, enumerable: true });

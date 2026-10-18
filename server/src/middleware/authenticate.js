@@ -21,7 +21,9 @@ const authenticate = asyncHandler(async (req, res, next) => {
   }
   if (!isObjectId(payload.sub)) throw invalidToken();
 
-  const user = await User.findById(payload.sub).select('name email role studentId profile mustChangePassword passwordChangedAt').lean();
+  const user = await User.findById(payload.sub)
+    .select('name email role studentId department profile mustChangePassword emailVerified passwordChangedAt')
+    .lean();
   if (!user) throw invalidToken();
   // A password change revokes every token issued before it.
   if (user.passwordChangedAt && payload.iat < Math.floor(new Date(user.passwordChangedAt).getTime() / 1000)) {
@@ -34,10 +36,11 @@ const authenticate = asyncHandler(async (req, res, next) => {
     name: user.name,
     email: user.email,
     role: user.role,
+    department: user.department || null,
     studentId: user.studentId || null,
     mustChangePassword: Boolean(user.mustChangePassword),
-    // Kept so GET /api/auth/me can report profileComplete (e.g. after the Google
-    // redirect hands the client a bare token).
+    emailVerified: Boolean(user.emailVerified),
+    // Kept so GET /api/auth/me can report profileComplete (e.g.
     profile: user.profile || null
   };
   next();

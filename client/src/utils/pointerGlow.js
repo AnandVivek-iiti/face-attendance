@@ -1,6 +1,4 @@
-// Feeds the pointer position into --mx / --my on whichever .lift surface is
-// under the cursor, which drives the soft spotlight in index.css. One delegated
-// listener, throttled to a frame, and only on devices with a real hover pointer.
+// Feeds the pointer position into --mx / --my on whichever .lift surface is under the cursor, which drives the soft spotlight in index.css.
 
 let pending = null;
 let frame = 0;

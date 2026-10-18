@@ -9,11 +9,8 @@ const { SESSION_STATUS } = require('../config/constants');
 
 const COLUMNS = ['Roll Number', 'Name', 'Status', 'Course', 'Date'];
 
-// Spreadsheet programs run any cell that starts with = + - @ (or a tab / CR) as
-// a formula. Names and roll numbers are typed by users, so one called
-// =HYPERLINK(...) would execute on whoever opens the export. A leading quote
-// makes the cell plain text.
-const neutralizeFormula = (text) => (/^[=+\-@\t\r]/.test(text) ? `'${text}` : text);
+// Spreadsheet programs run any cell that starts with = + - @ (or a tab / CR) as a formula.
+const neutralizeFormula = (text) => (/^(\s*[=+\-@]|[\t\r])/.test(text) ? `'${text}` : text);
 
 const escape = (value) => {
   const text = neutralizeFormula(value == null ? '' : String(value));

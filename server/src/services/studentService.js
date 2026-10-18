@@ -78,8 +78,7 @@ const getOne = async (user, ref) => {
 
 const create = (data) => Student.create(data);
 
-// Professors may correct who a student is (name, roll number, department) for
-// the cohorts they teach. Everything else stays admin-only.
+// Professors may correct who a student is (name, roll number, department) for the cohorts they teach.
 const PROFESSOR_EDITABLE = ['name', 'rollNumber', 'department'];
 
 const update = async (user, ref, data) => {
@@ -153,11 +152,7 @@ const listEnrolledForCourse = (course) =>
     .sort({ rollNumber: 1 })
     .lean();
 
-/**
- * Is this roll number already on the roster for this course? Enrollment lives on
- * the Student record's semester/section, so a match means the same roll number
- * in the same cohort the course is taught to.
- */
+// Is this roll number already on the roster for this course?
 const findInCourse = async (rollNumber, course) =>
   Student.findOne({
     rollNumber,
@@ -172,15 +167,7 @@ const assertCourseExists = async (courseId) => {
   return course;
 };
 
-/**
- * Profile setup: the student picks year/sem/dept/course, types their roll number
- * (their attendance id) and uploads a face photo.
- *
- * If that roll number is already on the course roster the account is simply
- * linked and they see their past attendance. Otherwise the photo and details
- * become an enrollment request the professor must approve — no student can add
- * themselves to a course directly.
- */
+// Profile setup: the student picks year/sem/dept/course, types their roll number (their attendance id) and uploads a face photo.
 const buildProfile = async (user, files, body) => {
   let course;
   try {
@@ -192,9 +179,7 @@ const buildProfile = async (user, files, body) => {
 
   const existing = await findInCourse(body.rollNumber, course);
   if (existing) {
-    // Linking exposes that student's attendance history. If another account
-    // already holds this roll number, a second one must not be able to take it
-    // over just by typing the same number.
+    // Linking exposes that student's attendance history.
     const claimedBy = await User.exists({ studentId: String(existing._id), _id: { $ne: user._id } });
     if (claimedBy) {
       throw new AppError('This roll number is already linked to another account', 409, {
@@ -293,11 +278,7 @@ const buildProfile = async (user, files, body) => {
   };
 };
 
-/**
- * Current student's own profile state. `profileComplete` is true once details
- * have been saved (buildProfile always writes `profile.rollNumber`), whether
- * that meant direct enrollment or a pending professor approval.
- */
+// Current student's own profile state.
 const getProfile = async (user) => {
   const fresh = await User.findById(user._id).lean();
   if (!fresh) throw new AppError('Account not found', 404, { code: 'USER_NOT_FOUND' });
@@ -322,17 +303,12 @@ const getProfile = async (user) => {
   };
 };
 
-/**
- * Past attendance for the linked student, grouped by course. Falls back to the
- * profile roll number so a student who has been approved but whose link was not
- * yet written still sees their history.
- */
+// Past attendance for the linked student, grouped by course.
 const getAttendance = async (user) => {
   const linked = user.studentId && isObjectId(String(user.studentId)) ? await Student.findById(user.studentId) : null;
   const rollNumber = linked?.rollNumber || user.profile?.rollNumber;
 
-  // Only finalized sessions count: earlier ones still hold unreviewed AI guesses
-  // (including "needs review", which would otherwise be shown as absent).
+  // Only finalized sessions count: earlier ones still hold unreviewed AI guesses (including "needs review", which would otherwise be shown as...
   const allRecords = linked
     ? await AttendanceRecord.find({ studentId: linked._id })
         .populate('sessionId', 'date status courseId')
@@ -392,10 +368,7 @@ const getAttendance = async (user) => {
 
 const MAX_REFERENCE_EMBEDDINGS = 5;
 
-// Append a reference vector to a student. Classrooms are lit poorly and shot
-// from awkward angles, so several vectors beat one perfect one. Done as an
-// atomic $push with $slice: faceEmbeddings is select:false, so a read-modify-write
-// here would silently drop every vector already stored.
+// Append a reference vector to a student.
 const appendEmbedding = async (student, embedding, model) => {
   await Student.updateOne(
     { _id: student._id },
@@ -410,14 +383,7 @@ const appendEmbedding = async (student, embedding, model) => {
   return student;
 };
 
-/**
- * Persist a small face thumbnail for each just-enrolled student, cropped from
- * the classroom photo the face was detected in. One ML call per source image,
- * so enrolling a whole page does not decode the photo once per face.
- *
- * Best effort by design: enrollment has already succeeded, so a cropper hiccup
- * leaves a student without a thumbnail rather than failing the assignment.
- */
+// Persist a small face thumbnail for each just-enrolled student, cropped from the classroom photo the face was detected in.
 const storeFaceThumbnails = async (session, entries) => {
   if (!entries || entries.length === 0) return;
   const imageById = new Map((session.uploadedImages || []).map((image) => [String(image._id), image]));
@@ -474,6 +440,7 @@ const storeFaceThumbnails = async (session, entries) => {
 
 module.exports = {
   getByRef,
+  assertCanView,
   list,
   getOne,
   create,

@@ -24,7 +24,7 @@ const reducedMotion = () =>
   typeof window.matchMedia === 'function' &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-/** Counts a numeric value (a number, or text like "87%") to its target on mount and on change. */
+// Counts a numeric value (a number, or text like "87%") to its target on mount and on change.
 export function useCountUp(value, duration = 1100) {
   const parsed = parseValue(value);
   const current = useRef(0);

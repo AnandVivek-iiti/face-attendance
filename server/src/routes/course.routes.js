@@ -19,9 +19,12 @@ router.get('/:id', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR), controller.getOn
 router.put('/:id', authorizeRole(ROLES.ADMIN), validate({ body: schemas.updateCourse }), controller.update);
 router.delete('/:id', authorizeRole(ROLES.ADMIN), controller.remove);
 
-// Admin provisions a professor. Their password arrives with their first course.
+// Admin provisions a professor and manages their access.
 router.post('/professors', authorizeRole(ROLES.ADMIN), validate({ body: schemas.createProfessor }), controller.addProfessor);
 router.put('/professors/:id', authorizeRole(ROLES.ADMIN), validate({ body: schemas.updateProfessor }), controller.updateProfessor);
 router.delete('/professors/:id', authorizeRole(ROLES.ADMIN), controller.removeProfessor);
+// Resend the sign-in link / regenerate a random password + link.
+router.post('/professors/:id/invite', authorizeRole(ROLES.ADMIN), controller.inviteProfessor);
+router.post('/professors/:id/regenerate', authorizeRole(ROLES.ADMIN), controller.regenerateProfessor);
 
 module.exports = router;

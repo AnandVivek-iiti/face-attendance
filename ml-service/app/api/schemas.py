@@ -53,8 +53,7 @@ class ReferenceEmbeddingResponse(BaseModel):
 
 
 class CropResponse(BaseModel):
-    # One base64 JPEG per requested box, in the same order. A bbox that cannot
-    # be cropped yields null so the caller can skip just that face.
+    # One base64 JPEG per requested box, in the same order.
     crops: list[str | None]
 
 

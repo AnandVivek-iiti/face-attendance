@@ -19,7 +19,7 @@ const findOwnedRequest = async (id, user) => {
   return { request, course };
 };
 
-/** Pending requests across every course the professor owns. */
+// Pending requests across every course the professor owns.
 const listForProfessor = async (user) => {
   const courses = await Course.find({ professorId: user._id }).select('courseCode courseName').lean();
   if (!courses.length) return [];
@@ -55,11 +55,7 @@ const embedImage = async (imagePath) => {
   return mlClient.generateEmbedding({ buffer, filename, mimeType });
 };
 
-/**
- * Atomically move a request out of "pending". Two professors (or a double click)
- * approving at once would otherwise both pass the status check and both write
- * the student and embedding.
- */
+// Atomically move a request out of "pending".
 const claimReview = async (request, status, user, note) => {
   const claimed = await EnrollmentRequest.findOneAndUpdate(
     { _id: request._id, status: ENROLLMENT_REQUEST_STATUS.PENDING },
@@ -76,11 +72,7 @@ const releaseReview = (request) =>
     { $set: { status: ENROLLMENT_REQUEST_STATUS.PENDING, reviewedBy: null, reviewedAt: null, note: null } }
   ).catch((error) => console.error('Could not reopen enrollment request', error));
 
-/**
- * Approve: turn the request photo into a real roster entry. The embedding is
- * derived here so the student can be matched from the very first classroom
- * photograph - they never need a separate registration photo later.
- */
+// Approve: turn the request photo into a real roster entry.
 const approve = async (id, user, note) => {
   const { request, course } = await findOwnedRequest(id, user);
   if (request.status !== ENROLLMENT_REQUEST_STATUS.PENDING) {
@@ -97,8 +89,7 @@ const approve = async (id, user, note) => {
   }
   const { embedding, embeddingModel } = generated;
 
-  // Check for conflicts before touching anything, so a refusal leaves no
-  // half-applied change (a new face vector on someone else's record, say).
+  // Check for conflicts before touching anything, so a refusal leaves no half-applied change (a new face vector on someone else's record, say).
   const existing = await Student.findOne({ rollNumber: request.rollNumber });
   if (existing) {
     const claimedBy = await User.exists({ studentId: String(existing._id), _id: { $ne: request.userId } });
@@ -171,7 +162,7 @@ const reject = async (id, user, note) => {
   return { request: reviewed.toJSON() };
 };
 
-/** A student's own request statuses, so they can see where they stand. */
+// A student's own request statuses, so they can see where they stand.
 const listForStudent = async (user) =>
   EnrollmentRequest.find({ userId: user._id })
     .populate('courseId', 'courseCode courseName')

@@ -15,7 +15,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 First start downloads the `buffalo_l` model pack (about 280 MB) into `INSIGHTFACE_ROOT`.
 GPU: `pip install -r requirements-gpu.txt` and leave `DEVICE=auto`.
-Docker: `docker build -t face-ml . && docker run -p 8000:8000 face-ml`.
+Docker: `docker build -t face-ml . && docker run -p 8000:8000 face-ml` (the container listens on `$PORT`, default 8000).
 
 If `pip install insightface` fails to compile on Windows, install Microsoft C++ Build Tools or use the Docker image.
 
@@ -75,6 +75,50 @@ See `.env.example`. Thresholds are starting points; calibrate with `scripts/eval
 
 - `scripts/import-facemark/`: inspect or export embeddings from the original FaceMark ZIP (read-only).
 - `scripts/evaluation/`: see its README.
+
+## Deploy (Google Cloud Run free tier)
+
+The `Dockerfile` bakes the model in and listens on `$PORT`, which is all Cloud Run needs. The free tier (per billing account, monthly) is 180k vCPU-seconds + 360k GiB-seconds + 2M requests; with scale-to-zero and a few sessions a day it stays inside that, but it needs a **card on file**. (Hugging Face Docker Spaces, Render free and Koyeb are all 512 MB or now paid — too small / not free for this model.)
+
+```bash
+gcloud run deploy face-attendance-ml \
+  --source . \
+  --region asia-south1 \
+  --allow-unauthenticated \
+  --memory 2Gi --cpu 2 \
+  --cpu-boost \
+  --timeout 300 \
+  --min-instances 0 --max-instances 1 \
+  --set-env-vars API_KEY=<value>
+```
+
+Then point the Node server at the printed URL:
+- `ML_SERVICE_URL=https://face-attendance-ml-<hash>-<region>.run.app`
+- `ML_API_KEY=<value>` (same as `API_KEY`)
+
+Verify: `curl -H "X-API-Key: <value>" <url>/health`.
+
+`--min-instances 0` means the first request after idle pays a cold start (container start + model warm-up, ~30–60 s); `--cpu-boost` speeds that up. `--timeout 300` covers cold start + a multi-image batch.
+
+## Deploy with no credit card: your PC + Cloudflare tunnel
+
+Google Cloud Run, Azure, Oracle and AWS all require a card. Without one, run this service on your own PC and expose it with a free Cloudflare **quick tunnel** (no account, no card). Your PC must stay on and online while attendance is in use, and the public URL changes on every restart.
+
+1. Install the tunnel binary once: `winget install --id Cloudflare.cloudflared`
+2. Run the launcher (starts the ML service, opens the tunnel, prints the URL):
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\scripts\serve-tunnel.ps1
+   ```
+3. Copy the printed `https://<words>.trycloudflare.com` URL into the Render service as `ML_SERVICE_URL` (and `ML_API_KEY` = the `API_KEY` from `.env`), then redeploy. Verify:
+   ```powershell
+   curl.exe -H "X-API-Key: <key>" https://<words>.trycloudflare.com/health
+   ```
+4. To skip the manual step, export a Render API key and service ID first — the script then updates `ML_SERVICE_URL` and triggers the redeploy for you:
+   ```powershell
+   $env:RENDER_API_KEY = "rnd_..."; $env:RENDER_SERVICE_ID = "srv-..."
+   powershell -ExecutionPolicy Bypass -File .\scripts\serve-tunnel.ps1
+   ```
+5. Keep the PC awake (disable sleep) and raise the server's `ML_TIMEOUT_MS` (e.g. `180000`) so a slow first inference does not time out. The server already retries a briefly unreachable host or a 5xx (`ML_RETRY_ATTEMPTS`, `ML_RETRY_DELAY_MS`), which covers a tunnel that is still coming up.
 
 ## Tests
 

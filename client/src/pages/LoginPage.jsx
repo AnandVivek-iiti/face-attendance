@@ -4,15 +4,14 @@ import { Camera, CheckCheck, Eye, EyeOff, ScanFace, Sparkles } from 'lucide-reac
 import ThemeSwitcher from '../components/ThemeSwitcher';
 import Button from '../components/ui/Button';
 import { useAuth } from '../context/AuthContext';
-import { getAuthConfig } from '../services/authService';
+import { getAuthConfig, requestMagicLink } from '../services/authService';
 import { API_BASE_URL } from '../services/http';
 import { getErrorMessage } from '../utils/errors';
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-/* One-shot text decode on mount. Monospace glyphs keep the width constant, so
-   the heading never reflows while it resolves. */
+// One-shot text decode on mount.
 const GLYPHS = '01<>[]{}#$%&*+=/';
 function Decode({ text }) {
   const [out, setOut] = useState(text);
@@ -44,8 +43,7 @@ function Decode({ text }) {
   );
 }
 
-/* Decorative preview of what the app does: a scan sweeps a classroom photo and
-   each face gets boxed and scored. Colours match the real review statuses. */
+// Decorative preview of what the app does: a scan sweeps a classroom photo and each face gets boxed and scored.
 const HEADS = [
   [70, 150], [150, 140], [230, 150], [310, 138], [390, 148],
   [100, 235], [185, 228], [270, 238], [355, 230],
@@ -189,6 +187,9 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(0);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [pending, setPending] = useState(null);
+  const [mode, setMode] = useState('password');
   const [googleEnabled, setGoogleEnabled] = useState(false);
   const timer = useRef(null);
 
@@ -197,15 +198,15 @@ export default function LoginPage() {
   useEffect(() => {
     let active = true;
     getAuthConfig().then((config) => {
-      if (active) setGoogleEnabled(Boolean(config?.googleEnabled));
+      if (!active) return;
+      setGoogleEnabled(Boolean(config?.googleEnabled));
     });
     return () => {
       active = false;
     };
   }, []);
 
-  // Handles the return leg of the Google round-trip: the server redirects back
-  // with ?token=<jwt> on success or ?error=... on failure.
+  // Handles the return leg of the Google round-trip: the server redirects back with ?token=<jwt> on success or ?error=...
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const errorParam = params.get('error');
@@ -219,8 +220,9 @@ export default function LoginPage() {
         google_wrong_domain: 'Use your @iiti.ac.in Google account.',
         google_unverified_email: 'Your Google email address is not verified.',
         google_no_email: 'Google did not share an email address for your account.',
+        verify_invalid: 'That sign-in link is invalid or has expired. Request a new one.',
       };
-      setError(messages[errorParam] || 'Google sign-in failed. Please try again or use your email and password.');
+      setError(messages[errorParam] || 'Sign-in failed. Please try again or use your email and password.');
       return;
     }
 
@@ -246,13 +248,14 @@ export default function LoginPage() {
   const submit = async (event) => {
     event.preventDefault();
     setBusy(true);
+    setPending('signin');
     setStage(1);
     setError(null);
+    setNotice(null);
     timer.current = setTimeout(() => setStage(2), 450);
     try {
       const signedIn = await signIn(email.trim(), password);
-      // First-time students go straight to mandatory profile setup and cannot
-      // skip it; everyone else lands where they were headed (or dashboard).
+      // First-time students go straight to mandatory profile setup and cannot skip it; everyone else lands where they were headed (or dashboard).
       const needsSetup = signedIn?.role === 'student' && !signedIn?.profileComplete;
       navigate(needsSetup ? '/student/profile' : location.state?.from?.pathname || '/dashboard', { replace: true });
     } catch (err) {
@@ -261,8 +264,36 @@ export default function LoginPage() {
       setError(status === 401 || status === 400 ? 'Email or password is incorrect.' : getErrorMessage(err));
       setStage(0);
       setBusy(false);
+      setPending(null);
     }
   };
+
+  // Requesting a one-time sign-in link lives on its own screen (email only).
+  const submitMagic = async (event) => {
+    event.preventDefault();
+    if (!email.trim()) return;
+    setBusy(true);
+    setPending('link');
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await requestMagicLink(email.trim());
+      setNotice(
+        result?.delivered === false
+          ? 'The request went through, but the email could not be sent right now. Ask your admin to share a sign-in link.'
+          : 'If that address has an account, a sign-in link is on its way. Open it on this device.',
+      );
+    } catch (err) {
+      const status = err.response?.status;
+      setError(status === 429 ? 'Too many link requests. Try again in a few minutes.' : getErrorMessage(err));
+    } finally {
+      setBusy(false);
+      setPending(null);
+    }
+  };
+
+  const useLink = mode === 'link';
+  const disabled = useLink ? !email : !email || !password;
 
   return (
     <div className="grid min-h-screen animate-page-in lg:grid-cols-[1.1fr_1fr]">
@@ -302,7 +333,7 @@ export default function LoginPage() {
       <div className="flex items-center justify-center px-6 py-10">
         <div className="w-full max-w-md">
           <div className="login-ring animate-pop">
-          <form onSubmit={submit} noValidate className="stagger glass-strong scan-once rounded-panel border border-line p-7">
+          <form onSubmit={useLink ? submitMagic : submit} noValidate className="stagger glass-strong scan-once rounded-panel border border-line p-7">
             <div className="mb-5 flex items-center gap-2 border-b border-line pb-3 text-sm font-semibold text-ink">
               <ScanFace size={18} className="text-primary" aria-hidden="true" />
               Face Attendance
@@ -312,9 +343,8 @@ export default function LoginPage() {
               <span aria-hidden="true" className="mr-2 text-primary">$</span>
               <Decode text="Sign in" />
             </h1>
-            <p className="mb-5 mt-1 text-sm text-muted">Use the account issued by your institution.</p>
 
-            <div className="space-y-3">
+            <div className="mt-5 space-y-3">
               <TermField
                 label="Email"
                 type="email"
@@ -324,27 +354,29 @@ export default function LoginPage() {
                 onChange={(event) => setEmail(event.target.value)}
                 required
               />
-              <TermField
-                label="Password"
-                type={reveal ? 'text' : 'password'}
-                autoComplete="current-password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                required
-                trailing={
-                  <button
-                    type="button"
-                    onClick={() => setReveal((value) => !value)}
-                    aria-label={reveal ? 'Hide password' : 'Show password'}
-                    className="rounded p-0.5 text-muted transition-colors hover:text-primary"
-                  >
-                    {reveal ? <EyeOff size={17} /> : <Eye size={17} />}
-                  </button>
-                }
-              />
+              {!useLink && (
+                <TermField
+                  label="Password"
+                  type={reveal ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                  trailing={
+                    <button
+                      type="button"
+                      onClick={() => setReveal((value) => !value)}
+                      aria-label={reveal ? 'Hide password' : 'Show password'}
+                      className="rounded p-0.5 text-muted transition-colors hover:text-primary"
+                    >
+                      {reveal ? <EyeOff size={17} /> : <Eye size={17} />}
+                    </button>
+                  }
+                />
+              )}
             </div>
 
-            {googleEnabled && (
+            {!useLink && googleEnabled && (
               <Button
                 type="button"
                 variant="ghost"
@@ -359,6 +391,38 @@ export default function LoginPage() {
               </Button>
             )}
 
+            {!useLink && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="lg"
+                onClick={() => {
+                  setMode('link');
+                  setError(null);
+                  setNotice(null);
+                  setStage(0);
+                }}
+                className="mt-3 w-full justify-center gap-2"
+              >
+                Send me login link
+              </Button>
+            )}
+
+            {useLink && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('password');
+                  setError(null);
+                  setNotice(null);
+                  setStage(0);
+                }}
+                className="mt-3 text-xs font-semibold text-primary underline-offset-2 hover:underline"
+              >
+                Use email and password instead
+              </button>
+            )}
+
             {/* Fixed height: status text changes never move the button. */}
             <div className="mt-4 h-[4.25rem] text-xs leading-5" role="status" aria-live="polite">
               {error && (
@@ -367,25 +431,40 @@ export default function LoginPage() {
                   <p className="text-muted">{error}</p>
                 </div>
               )}
-              {!error && !busy && (
+              {!error && notice && (
+                <div>
+                  <p className="text-ok">✓ link sent</p>
+                  <p className="text-muted">{notice}</p>
+                </div>
+              )}
+              {!error && !notice && !busy && (
                 <p className="text-muted">
-                  awaiting credentials<span className="term-block ml-1" />
+                  {useLink ? 'awaiting email' : 'awaiting credentials'}
+                  <span className="term-block ml-1" />
                 </p>
               )}
               {busy && (
                 <>
                   <p className="text-muted">› connecting</p>
-                  {stage >= 2 && (
+                  {pending === 'link' ? (
                     <p className="text-primary">
-                      › verifying credentials<span className="term-block ml-1" />
+                      › sending link
+                      <span className="term-block ml-1" />
                     </p>
+                  ) : (
+                    stage >= 2 && (
+                      <p className="text-primary">
+                        › verifying credentials
+                        <span className="term-block ml-1" />
+                      </p>
+                    )
                   )}
                 </>
               )}
             </div>
 
-            <Button type="submit" variant="primary" size="lg" loading={busy} disabled={!email || !password} className="w-full">
-              Sign in
+            <Button type="submit" variant="primary" size="lg" loading={busy} disabled={disabled} className="w-full">
+              {useLink ? 'Send me a sign-in link' : 'Sign in'}
             </Button>
           </form>
           </div>

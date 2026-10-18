@@ -8,14 +8,12 @@ const { IIIT_EMAIL_DOMAIN, ROLES } = require('../config/constants');
 const { googleClientId, googleClientSecret, googleCallbackUrl } = env;
 const googleEnabled = Boolean(googleClientId && googleClientSecret);
 
-// Where the browser should land after the Google round-trip. Reused for both the
-// success token hand-off and the failure redirect.
+// Where the browser should land after the Google round-trip.
 const clientOrigin = env.clientOrigins[0] || 'http://localhost:5173';
 const loginRedirect = (params) =>
   `${clientOrigin}/login?${new URLSearchParams(params).toString()}`;
 
-// Errors the user can act on are shown as-is; anything else is logged and the
-// browser only sees a generic code (never internal error text).
+// Errors the user can act on are shown as-is; anything else is logged and the browser only sees a generic code (never internal error text).
 class GoogleLoginError extends Error {
   constructor(code, message) {
     super(message);
@@ -26,8 +24,7 @@ class GoogleLoginError extends Error {
 
 let initialized = false;
 
-// The strategy only ever runs when both credentials are present, and registering
-// it more than once (multiple createApp() calls in tests) is a no-op.
+// The strategy only ever runs when both credentials are present, and registering it more than once (multiple createApp() calls in tests) is a...
 const initializeGooglePassport = () => {
   if (!googleEnabled || initialized) return;
   initialized = true;
@@ -48,16 +45,13 @@ const initializeGooglePassport = () => {
 
           if (!email) throw new GoogleLoginError('google_no_email', 'Google account did not share an email address');
 
-          // An unverified address proves nothing about who owns it; accepting it
-          // would let someone sign in as any @iiti.ac.in user.
+          // An unverified address proves nothing about who owns it; accepting it would let someone sign in as any @iiti.ac.in user.
           const verified = primary?.verified ?? profile._json?.email_verified;
           if (verified !== true && verified !== 'true') {
             throw new GoogleLoginError('google_unverified_email', 'Your Google email address is not verified');
           }
 
-          // Only the institutional domain may hold an account. Professors and
-          // admins are provisioned by an admin, so an unknown address becomes a
-          // student - exactly like the password first-login path.
+          // Only the institutional domain may hold an account.
           if (!authService.isIitiEmail(email)) {
             throw new GoogleLoginError('google_wrong_domain', `Use your @${IIIT_EMAIL_DOMAIN} Google account`);
           }
@@ -87,8 +81,7 @@ const initializeGooglePassport = () => {
   );
 };
 
-// Kicks off the redirect to Google. If it is not configured, send the user back
-// to the login page with a readable error instead of a dead route.
+// Kicks off the redirect to Google.
 const authenticateGoogle = (req, res, next) =>
   googleEnabled
     ? passport.authenticate('google', {
@@ -100,9 +93,7 @@ const authenticateGoogle = (req, res, next) =>
       })(req, res, next)
     : res.redirect(loginRedirect({ error: 'google_not_configured' }));
 
-// Uses the custom-callback form so a failure becomes a redirect back to the
-// login page. With only failureRedirect, an error thrown by the strategy was
-// passed to the error handler and the browser got a raw JSON 500.
+// Uses the custom-callback form so a failure becomes a redirect back to the login page.
 const authenticateGoogleCallback = (req, res, next) => {
   if (!googleEnabled) return res.redirect(loginRedirect({ error: 'google_not_configured' }));
   return passport.authenticate('google', { session: false }, (error, result) => {
@@ -117,8 +108,7 @@ const authenticateGoogleCallback = (req, res, next) => {
   })(req, res, next);
 };
 
-// Runs after a successful callback: hand the JWT to the client, which exchanges
-// it for the user via GET /api/auth/me.
+// Runs after a successful callback: hand the JWT to the client, which exchanges it for the user via GET /api/auth/me.
 const googleCallback = (req, res) => {
   const token = req.user?.token;
   if (!token) return res.redirect(loginRedirect({ error: 'google_failed' }));

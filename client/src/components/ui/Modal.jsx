@@ -7,17 +7,11 @@ const EXIT_MS = 180;
 export default function Modal({ open, title, onClose, children, footer, width = 'max-w-lg' }) {
   const panel = useRef(null);
 
-  // Keep the latest onClose in a ref. Parents pass fresh arrow functions on
-  // every render, and when onClose was an effect dependency the effect re-ran
-  // after each keystroke and pulled focus off the input, so only one character
-  // could be typed at a time.
+  // Keep the latest onClose in a ref.
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
 
-  // After `open` turns false the dialog stays mounted for EXIT_MS so it can
-  // play its exit animation. What it shows during that window is frozen at the
-  // last open render, so a parent that clears its state on close cannot make
-  // the fading dialog crash or flash empty.
+  // After `open` turns false the dialog stays mounted for EXIT_MS so it can play its exit animation.
   const [mounted, setMounted] = useState(open);
   const last = useRef({ title, children, footer });
   if (open) last.current = { title, children, footer };

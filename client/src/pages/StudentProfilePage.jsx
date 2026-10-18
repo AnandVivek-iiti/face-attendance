@@ -60,8 +60,7 @@ export default function StudentProfilePage() {
   const saved = useAsync(getProfile, [], { enabled: savedDetails && !editing });
   const healed = useRef(false);
 
-  // Self-heal sessions stored before profile state was tracked: if the server
-  // already has saved details, pick them up instead of showing the wizard.
+  // Self-heal sessions stored before profile state was tracked: if the server already has saved details, pick them up instead of showing the...
   useEffect(() => {
     if (savedDetails || healed.current) return;
     healed.current = true;
@@ -113,18 +112,15 @@ export default function StudentProfilePage() {
     const filtered = courses.filter(
       (course) =>
         (!values.semester || course.semester == null || String(course.semester) === String(values.semester)) &&
-        // Courses saved before departments existed have none set — they match
-        // every department so the list never comes back empty for them.
+        // Courses saved before departments existed have none set — they match every department so the list never comes back empty for them.
         (!values.department || !course.department || course.department === values.department)
     );
-    // Never dead-end the student on this step: if the filter empties the
-    // list, fall back to every course so ME217 is always pickable.
+    // Never dead-end the student on this step: if the filter empties the list, fall back to every course so ME217 is always pickable.
     if (filtered.length > 0 || courses.length === 0) return { coursesForSelection: filtered, coursesRelaxed: false };
     return { coursesForSelection: courses, coursesRelaxed: true };
   }, [courses, values.semester, values.department]);
 
-  // Default to ME217 (the test course) when it is among the options, or to
-  // the only option when there is just one. The student can still change it.
+  // Default to ME217 (the test course) when it is among the options, or to the only option when there is just one.
   useEffect(() => {
     if (values.courseId || coursesForSelection.length === 0) return;
     const preferred =
@@ -163,8 +159,7 @@ export default function StudentProfilePage() {
     setResult(null);
   };
 
-  // Every card is mandatory: year, semester, department, course, plus roll
-  // number, name and a face photo. The server validates the same set.
+  // Every card is mandatory: year, semester, department, course, plus roll number, name and a face photo.
   const missingDetails = () => {
     const missing = [];
     if (!values.year) missing.push('year');
@@ -203,8 +198,7 @@ export default function StudentProfilePage() {
         image
       );
       setResult(response);
-      // Refresh the stored user so the setup gate opens immediately — no
-      // re-login needed — then later logins land on the dashboard normally.
+      // Refresh the stored user so the setup gate opens immediately — no re-login needed — then later logins land on the dashboard normally.
       try {
         await refreshUser();
       } catch {
@@ -224,7 +218,6 @@ export default function StudentProfilePage() {
   };
 
   // Saved once: later logins land here-ready and every other page is open.
-  // The wizard below is only for first-time setup (or explicit updates).
   if (!showWizard) {
     const detail = saved.data;
     if (saved.loading && !detail) return <Spinner label="Loading your profile" />;

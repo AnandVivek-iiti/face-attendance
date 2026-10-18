@@ -1,5 +1,4 @@
 // Skeleton loader (kept under the old Spinner name so every call site works).
-// variant "rows" (default) is a list; "dashboard" is stat tiles plus two cards.
 
 const Bar = ({ className = '' }) => <div className={`skeleton rounded-ctl ${className}`} />;
 

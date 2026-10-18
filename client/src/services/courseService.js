@@ -9,15 +9,9 @@ export async function getCourses() {
   return asList(unwrap(await http.get('/api/courses')), 'courses').map(normalizeCourse);
 }
 
-// Every course in the system. Students use this to pick a course to enroll in;
-// /api/courses is staff-only.
+// Every course in the system.
 export async function getAvailableCourses() {
   return asList(unwrap(await http.get('/api/courses/available')), 'courses').map(normalizeCourse);
-}
-
-export async function getCourse(id) {
-  const payload = unwrap(await http.get(`/api/courses/${id}`));
-  return normalizeCourse(payload.course ?? payload);
 }
 
 export async function createCourse(values) {
@@ -43,6 +37,18 @@ export async function addProfessor(values) {
   return payload;
 }
 
+// Resend the professor's one-time sign-in link (no password change).
+export async function inviteProfessor(id) {
+  const payload = unwrap(await http.post(`/api/courses/professors/${id}/invite`));
+  return payload;
+}
+
+// Issue a fresh random password AND sign-in link for the professor.
+export async function regenerateProfessor(id) {
+  const payload = unwrap(await http.post(`/api/courses/professors/${id}/regenerate`));
+  return payload;
+}
+
 export async function updateProfessor(id, values) {
   const payload = unwrap(await http.put(`/api/courses/professors/${id}`, values));
   return payload;
@@ -59,11 +65,6 @@ export async function getDepartments() {
 
 export async function createDepartment(values) {
   const payload = unwrap(await http.post('/api/departments', values));
-  return payload;
-}
-
-export async function updateDepartment(id, values) {
-  const payload = unwrap(await http.put(`/api/departments/${id}`, values));
   return payload;
 }
 

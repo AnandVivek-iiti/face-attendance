@@ -36,4 +36,27 @@ const removeProfessor = asyncHandler(async (req, res) =>
   success(res, await courseService.removeProfessor(req.params.id, req.user))
 );
 
-module.exports = { list, listAll, create, getOne, update, remove, listProfessors, addProfessor, updateProfessor, removeProfessor };
+// Resend the one-time sign-in link.
+const inviteProfessor = asyncHandler(async (req, res) =>
+  success(res, await courseService.inviteProfessor(req.params.id, req.user))
+);
+
+// Issue a fresh random password AND sign-in link for the professor.
+const regenerateProfessor = asyncHandler(async (req, res) =>
+  success(res, await courseService.regenerateProfessorCredentials(req.params.id, req.user))
+);
+
+module.exports = {
+  list,
+  listAll,
+  create,
+  getOne,
+  update,
+  remove,
+  listProfessors,
+  addProfessor,
+  updateProfessor,
+  removeProfessor,
+  inviteProfessor,
+  regenerateProfessor
+};

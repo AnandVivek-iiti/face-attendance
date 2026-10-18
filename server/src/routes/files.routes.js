@@ -15,11 +15,7 @@ const root = path.resolve(env.storageRoot);
 const CONTENT_TYPES = { '.jpg': 'image/jpeg', '.png': 'image/png', '.webp': 'image/webp' };
 const notFound = () => new AppError('File not found', 404, { code: 'FILE_NOT_FOUND' });
 
-// <img> tags and Image() loaders cannot send an Authorization header, so the
-// client appends ?token=<jwt> to file URLs. Accept it here (and only here),
-// then run the normal authenticate chain - same verification, no weakening.
-// NOTE: a token in a URL can end up in access logs and browser history, so keep
-// proxy/access logs from recording query strings for /api/files.
+// <img> tags and Image() loaders cannot send an Authorization header, so the client appends ?token=<jwt> to file URLs.
 const tokenFromQuery = (req, _res, next) => {
   if (!req.headers.authorization && typeof req.query.token === 'string' && req.query.token) {
     req.headers.authorization = `Bearer ${req.query.token}`;
@@ -27,22 +23,19 @@ const tokenFromQuery = (req, _res, next) => {
   next();
 };
 
-// A regular expression (rather than '/*') behaves the same on Express 4 and 5,
-// where the wildcard syntax is different and '/*' is rejected at startup on 5.
+// A regular expression (rather than '/*') behaves the same on Express 4 and 5, where the wildcard syntax is different and '/*' is rejected at...
 router.get(
   /^\/(.+)$/,
   tokenFromQuery,
   authenticate,
   authorizeRole(ROLES.PROFESSOR, ROLES.ADMIN),
   asyncHandler(async (req, res) => {
-    // Express has already URL-decoded the capture; decoding again would let
-    // "%252e%252e" turn into "..". Only the strict allowlist below is trusted.
+    // Express has already URL-decoded the capture; decoding again would let "%252e%252e" turn into "..".
     const relative = String((req.params && req.params[0]) || '');
     const info = fileAccessService.classify(relative);
     if (!info) throw notFound();
 
-    // Same 404 whether the file is missing or merely not theirs, so the route
-    // cannot be used to probe which photos exist.
+    // Same 404 whether the file is missing or merely not theirs, so the route cannot be used to probe which photos exist.
     if (!(await fileAccessService.canAccess(req.user, relative, info))) throw notFound();
 
     const absolute = path.resolve(root, relative);

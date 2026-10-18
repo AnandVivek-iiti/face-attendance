@@ -7,8 +7,7 @@ export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const nextId = useRef(1);
 
-  // Dismissing flags the toast as leaving so it can play its exit animation,
-  // then removes it once that animation (0.22s in index.css) is done.
+  // Dismissing flags the toast as leaving so it can play its exit animation, then removes it once that animation (0.22s in index.css) is done.
   const dismiss = useCallback((id) => {
     setToasts((current) => current.map((toast) => (toast.id === id ? { ...toast, leaving: true } : toast)));
     window.setTimeout(() => {

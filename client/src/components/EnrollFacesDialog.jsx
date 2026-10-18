@@ -9,13 +9,7 @@ import { getErrorMessage } from '../utils/errors';
 
 const PAGE_SIZE = 10;
 
-/**
- * First-attendance enrollment, 10 faces per page. Each row gets a roll number
- * + name; "Enroll this page" saves every filled row in order. Each enrollment
- * hits the server's assign-face endpoint, which creates the student on the
- * spot (roster = course semester/section), stores the face vector as their
- * reference, and marks them present.
- */
+// First-attendance enrollment, 10 faces per page.
 export default function EnrollFacesDialog({ open, faces, imageById, sizes, takenRolls, onEnroll, onEnrollMany, onClose }) {
   const [inputs, setInputs] = useState({});
   const [marks, setMarks] = useState({});
@@ -60,8 +54,7 @@ export default function EnrollFacesDialog({ open, faces, imageById, sizes, taken
   const setInput = (key, field, value) =>
     setInputs((current) => ({ ...current, [key]: { roll: '', name: '', ...current[key], [field]: value } }));
 
-  // Roll number and name are optional. Left empty, the server creates the student
-  // with a database-generated ID that the professor can change later.
+  // Roll number and name are optional.
   const valuesFor = (face) => {
     const input = inputs[face.key] ?? { roll: '', name: '' };
     const roll = input.roll.trim();
@@ -97,8 +90,7 @@ export default function EnrollFacesDialog({ open, faces, imageById, sizes, taken
         .map((face) => ({ face, values: valuesFor(face) }));
       if (items.length === 0) return;
 
-      // Preferred path: the whole page in ONE request (much faster, and no
-      // partial overwrites). Falls back to one-by-one if no bulk handler.
+      // Preferred path: the whole page in ONE request (much faster, and no partial overwrites).
       if (!onEnrollMany) {
         for (const { face } of items) await enrollOne(face);
         return;

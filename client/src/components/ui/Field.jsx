@@ -1,7 +1,6 @@
 import { useId } from 'react';
 
-// Always occupies one line, so a hint or error appearing mid-typing cannot
-// change the height of the form and shove the field under the caret.
+// Always occupies one line, so a hint or error appearing mid-typing cannot change the height of the form and shove the field under the caret.
 function Message({ hint, error }) {
   return (
     <p role={error ? 'alert' : undefined} className={`mt-1 min-h-4 text-xs leading-4 ${error ? 'text-bad' : 'text-muted'}`}>

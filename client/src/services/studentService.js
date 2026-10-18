@@ -1,8 +1,7 @@
 import http from './http';
 import { asList, normalizeStudent, unwrap, unwrapWithMeta } from '../utils/normalize';
 
-// The server pages results (max 100). Fetch every page so a class of 56+ is never cut off.
-// `filters` (semester, section, active, department, q) are applied by the server.
+// The server pages results (max 100).
 export async function getStudents(filters = {}) {
   const all = [];
   let page = 1;
@@ -35,8 +34,7 @@ export async function deleteStudent(id) {
   await http.delete(`/api/students/${id}`);
 }
 
-// The server keeps a single reference image per student (and rebuilds the
-// embedding from it), so exactly one file is sent in the `image` field.
+// The server keeps a single reference image per student (and rebuilds the embedding from it), so exactly one file is sent in the `image`...
 export async function uploadStudentFaces(id, files, onProgress) {
   const file = Array.isArray(files) ? files[0] : files;
   const form = new FormData();

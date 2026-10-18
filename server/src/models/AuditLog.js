@@ -3,9 +3,7 @@ const { AUDIT_ACTIONS } = require('../config/constants');
 
 const auditLogSchema = new mongoose.Schema(
   {
-    // Only session-scoped events (analysis, record changes, finalize) carry a
-    // session; account/roster events (courses, departments, professors,
-    // enrollment) are not tied to one, so this is optional.
+    // Only session-scoped events (analysis, record changes, finalize) carry a session; account/roster events (courses, departments, professors...
     sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'AttendanceSession', default: null },
     studentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Student', default: null },
     actorType: { type: String, enum: ['user', 'ai', 'system'], required: true },

@@ -3,23 +3,6 @@ const db = require('../server/src/config/db');
 const User = require('../server/src/models/User');
 const Course = require('../server/src/models/Course');
 const Department = require('../server/src/models/Department');
-const courseService = require('../server/src/services/courseService');
-const authService = require('../server/src/services/authService');
-const { professorPasswordFor } = require('../server/src/config/constants');
-
-const PROFESSOR = {
-  name: 'Pradeep Kundu',
-  email: 'pradeep.kundu@iiti.ac.in'
-};
-
-const COURSE = {
-  courseCode: 'ME217',
-  courseName: 'INDUSTRIAL DATA ANALYTICS',
-  semester: 5,
-  section: 'A',
-  department: 'ME',
-  room: 'L03'
-};
 
 const DEPARTMENTS = [
   { code: 'ME', name: 'Mechanical Engineering' },
@@ -32,22 +15,55 @@ const DEPARTMENTS = [
   { code: 'PH', name: 'Physics' }
 ];
 
+// Courses are seeded from just a code + department for now (the semester is
+// derived from the year so courses span every year of study). Add or remove
+// rows below to change the shape of what gets seeded.
+//
+// Code format: <DEPARTMENT><year><serial>, e.g. ME101, ME202.
+// 5 courses per department, covering years 1-4.
+const COURSE_PATTERN = [
+  { year: 1, serial: 1 },
+  { year: 2, serial: 1 },
+  { year: 3, serial: 1 },
+  { year: 4, serial: 1 },
+  { year: 2, serial: 2 }
+];
+
+const COURSES = DEPARTMENTS.flatMap(({ code }) =>
+  COURSE_PATTERN.map(({ year, serial }) => ({
+    courseCode: `${code}${year}0${serial}`,
+    department: code,
+    // Two terms per year; this places each course in its year's first term.
+    semester: year * 2 - 1
+  }))
+);
+
+// Fields the Course schema still requires that we do not vary for seeding.
+const COURSE_DEFAULTS = {
+  section: 'A'
+};
+
+// Course.professorId is required, so seeded courses need an owner. This account
+// exists only to satisfy that constraint; it is not intended to sign in.
+const PLACEHOLDER_PROFESSOR = {
+  name: 'Seed Professor',
+  email: 'seed.professor@iiti.ac.in'
+};
+
+const ensurePlaceholderProfessor = async () => {
+  const existing = await User.findOne({ email: PLACEHOLDER_PROFESSOR.email });
+  if (existing) return existing;
+  return User.create({
+    name: PLACEHOLDER_PROFESSOR.name,
+    email: PLACEHOLDER_PROFESSOR.email,
+    role: 'professor',
+    department: COURSES[0]?.department || null,
+    emailVerified: true
+  });
+};
+
 const main = async () => {
   await db.connect();
-
-  let professor = await User.findOne({ email: PROFESSOR.email });
-  if (!professor) {
-    professor = await User.create({
-      name: PROFESSOR.name,
-      email: PROFESSOR.email,
-      role: 'professor',
-      department: COURSE.department,
-      passwordSetByCourse: null
-    });
-    console.log(`Created professor: ${professor.name} (${professor.email})`);
-  } else {
-    console.log(`Professor exists: ${professor.name} (${professor.email})`);
-  }
 
   for (const dept of DEPARTMENTS) {
     const existing = await Department.findOne({ code: dept.code });
@@ -55,46 +71,30 @@ const main = async () => {
   }
   console.log(`Departments ready (${DEPARTMENTS.length}).`);
 
-  const existing = await Course.findOne({
-    courseCode: COURSE.courseCode,
-    semester: COURSE.semester,
-    section: COURSE.section
-  });
-  if (existing) {
-    if (String(existing.professorId) !== String(professor._id) || existing.room !== COURSE.room || !existing.department) {
-      existing.professorId = professor._id;
-      existing.room = COURSE.room;
-      if (!existing.department) existing.department = COURSE.department;
-      await existing.save();
-    }
-    console.log(`Course exists: ${COURSE.courseCode} - ${COURSE.courseName} (room ${existing.room})`);
-  } else {
-    // Created through the service; the course stores the professor assignment.
-    await courseService.create({ ...COURSE, professorId: professor._id }, null);
-    console.log(`Created course: ${COURSE.courseCode} - ${COURSE.courseName} (room ${COURSE.room})`);
-  }
-  // ME217 is the designated test course: make sure its professor's password is
-  // the course-derived one, even if the course predates this logic.
-  const coursePassword = professorPasswordFor(COURSE.courseCode);
-  const stored = await User.findOne({ email: PROFESSOR.email }).select('+passwordHash passwordSetByCourse');
-  if (stored.passwordSetByCourse !== COURSE.courseCode) {
-    await User.updateOne(
-      { _id: professor._id },
-      {
-        $set: {
-          passwordHash: await authService.hashPassword(coursePassword),
-          passwordSetByCourse: COURSE.courseCode
-        }
-      }
-    );
-    console.log(`Set professor password to ${coursePassword}`);
-  }
+  const professor = await ensurePlaceholderProfessor();
 
-  console.log('\nProfessor login:');
-  console.log(`  email:    ${PROFESSOR.email}`);
-  console.log(`  password: ${coursePassword}`);
-  console.log('  (derived from the course code; the admin can share it directly)');
-  console.log('\nStudent flow: any @iiti.ac.in email + a password of 8+ characters.');
+  let created = 0;
+  for (const { courseCode, department, semester } of COURSES) {
+    const existing = await Course.findOne({ courseCode });
+    if (existing) {
+      // Keep only the department in sync; leave the other fields untouched.
+      if (existing.department !== department) {
+        existing.department = department;
+        await existing.save();
+      }
+      continue;
+    }
+    await Course.create({
+      courseCode,
+      department,
+      courseName: courseCode,
+      semester,
+      section: COURSE_DEFAULTS.section,
+      professorId: professor._id
+    });
+    created += 1;
+  }
+  console.log(`Courses ready (${COURSES.length}, ${created} new).`);
 };
 
 main()

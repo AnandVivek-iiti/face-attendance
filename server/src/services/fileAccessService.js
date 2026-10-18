@@ -4,9 +4,7 @@ const Student = require('../models/Student');
 const Course = require('../models/Course');
 const { ROLES } = require('../config/constants');
 
-// Stored names are always `<uuid>.<ext>` (optionally prefixed with an ObjectId),
-// so anything outside this tiny alphabet is not one of ours and is refused
-// before the filesystem is ever touched.
+// Stored names are always `<uuid>.<ext>` (optionally prefixed with an ObjectId), so anything outside this tiny alphabet is not one of ours...
 const IMAGE_EXT = '(?:jpg|png|webp)';
 const PATTERNS = [
   { kind: 'attendance', regex: new RegExp(`^attendance-images/([0-9a-f]{24})/[A-Za-z0-9-]+\\.${IMAGE_EXT}$`) },
@@ -14,7 +12,7 @@ const PATTERNS = [
   { kind: 'profile', regex: new RegExp(`^profile-images/([0-9a-f]{24})-[A-Za-z0-9-]+\\.${IMAGE_EXT}$`) }
 ];
 
-/** Returns { kind, ownerId } for a well-formed storage path, otherwise null. */
+// Returns { kind, ownerId } for a well-formed storage path, otherwise null.
 const classify = (relativePath) => {
   if (typeof relativePath !== 'string' || relativePath.length > 200) return null;
   for (const { kind, regex } of PATTERNS) {
@@ -24,11 +22,7 @@ const classify = (relativePath) => {
   return null;
 };
 
-/**
- * Photos of students are personal data, so being a professor is not enough:
- * the file has to belong to something that professor is responsible for.
- * Admins can see everything.
- */
+// Photos of students are personal data, so being a professor is not enough: the file has to belong to something that professor is responsible...
 const canAccess = async (user, relativePath, info = classify(relativePath)) => {
   if (!info) return false;
   if (user.role === ROLES.ADMIN) return true;

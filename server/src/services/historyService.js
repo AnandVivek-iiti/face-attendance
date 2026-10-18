@@ -53,7 +53,11 @@ const resolveTargetStudent = async (user, query) => {
     }
     return own;
   }
-  return query.studentId ? studentService.getByRef(query.studentId) : null;
+  if (!query.studentId) return null;
+  const student = await studentService.getByRef(query.studentId);
+  // A professor may only look up students in the cohorts they teach, the same rule GET /students/:id applies.
+  if (user.role === ROLES.PROFESSOR) await studentService.assertCanView(user, student);
+  return student;
 };
 
 const listStudentRecords = async (user, query, student) => {

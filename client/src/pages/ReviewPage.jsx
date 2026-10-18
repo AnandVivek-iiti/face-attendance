@@ -196,8 +196,7 @@ export default function ReviewPage() {
     onDismissFace: (face) => review.dismissFace(face.key),
   };
 
-  // Pointing a face at a student is a server-side change: it stores the face
-  // vector as that student's reference and marks them present.
+  // Pointing a face at a student is a server-side change: it stores the face vector as that student's reference and marks them present.
   const confirmChange = async (choice) => {
     const face = dialog?.face;
     setDialog(null);
@@ -221,8 +220,7 @@ export default function ReviewPage() {
     }
   };
 
-  // First-attendance enrollment: each face gets an ID, which creates the
-  // student on the server. No reload per face — one refresh when finished.
+  // First-attendance enrollment: each face gets an ID, which creates the student on the server.
   const enrollFace = async (face, values) => {
     await assignFace(sessionId, face.faceId, values);
   };

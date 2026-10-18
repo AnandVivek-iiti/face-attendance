@@ -38,8 +38,7 @@ const booleanFlag = (name, fallback) => {
   return raw.toLowerCase() === 'true';
 };
 
-// Secrets that have been published in docs/examples. A server running with one
-// of these accepts forged tokens from anyone who has read the same page.
+// Secrets that have been published in docs/examples.
 const KNOWN_PUBLIC_SECRETS = [
   // The sample HS256 token from jwt.io that used to sit in .env.example.
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiYWRtaW4iOnRydWUsImlhdCI6MTUxNjIzOTAyMn0.KMUFsIDTnFmyG3nMiGM6H9FNFUROf3wh7SmqJp-QV30'
@@ -60,32 +59,59 @@ const clientOrigins = required('CLIENT_URL')
 if (clientOrigins.length === 0 || clientOrigins.includes('*')) {
   throw new Error('CLIENT_URL must list explicit origins (a wildcard is not allowed with credentialed CORS)');
 }
+// In dev, always allow the local Vite origins so a mis-set CLIENT_URL cannot break local sign-in.
+if (!isProduction) {
+  for (const origin of ['http://localhost:5173', 'http://127.0.0.1:5173']) {
+    if (!clientOrigins.includes(origin)) clientOrigins.push(origin);
+  }
+}
+
+const port = positiveInt('PORT', 5000);
+const smtpPort = positiveInt('SMTP_PORT', 587);
+
+// Public origin of THIS server, used to build professor sign-in links.
+const serverUrl = (process.env.SERVER_URL || `http://localhost:${port}`).replace(/\/+$/, '');
 
 module.exports = Object.freeze({
   nodeEnv,
   isProduction,
-  port: positiveInt('PORT', 5000),
+  port,
+  serverUrl,
   mongodbUri: required('MONGODB_URI'),
   jwtSecret,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '8h',
   mlServiceUrl: required('ML_SERVICE_URL').replace(/\/+$/, ''),
-  // Optional: only needed when the ML service has API_KEY set. Empty means no header.
+  // Optional: only needed when the ML service has API_KEY set.
   mlApiKey: process.env.ML_API_KEY || '',
   mlTimeoutMs: positiveInt('ML_TIMEOUT_MS', 60000),
+  // Total tries for a transient ML failure (unreachable host / 5xx), including the first.
+  mlRetryAttempts: positiveInt('ML_RETRY_ATTEMPTS', 3),
+  // Base backoff between retries in ms (linear: delay, 2*delay, ...).
+  mlRetryDelayMs: nonNegativeInt('ML_RETRY_DELAY_MS', 1000),
   clientOrigins,
   uploadMaxSize: positiveInt('UPLOAD_MAX_SIZE', 10 * 1024 * 1024),
-  // Number of reverse proxies in front of the app (0 = none). Required for
-  // correct per-IP rate limiting behind nginx / a load balancer.
+  // Number of reverse proxies in front of the app (0 = none).
   trustProxy: nonNegativeInt('TRUST_PROXY', 0),
-  // Password "first login creates the account" lets anyone register an address
-  // they do not own. Off by default in production; Google sign-in still works.
+  // Password "first login creates the account" lets anyone register an address they do not own.
   allowSelfRegistration: booleanFlag('ALLOW_SELF_REGISTRATION', !isProduction),
-  // Optional: only set when "Sign in with Google" should be offered. The client
-  // secret must never reach the browser, so these are server-side only.
+  // Optional: only set when "Sign in with Google" should be offered.
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-  // Relative by default: passport resolves it against the incoming request host,
-  // so the same value works in dev (:5000) and behind a proxy.
+  // Relative by default: passport resolves it against the incoming request host, so the same value works in dev (:5000) and behind a proxy.
   googleCallbackUrl: process.env.GOOGLE_CALLBACK_URL || '/api/auth/google/callback',
+  // Optional SMTP for professor sign-in links.
+  smtpHost: process.env.SMTP_HOST || '',
+  smtpPort,
+  smtpSecure: booleanFlag('SMTP_SECURE', smtpPort === 465),
+  smtpUser: process.env.SMTP_USER || '',
+  smtpPass: process.env.SMTP_PASS || '',
+  mailFrom: process.env.MAIL_FROM || '',
+  // Optional HTTP mail providers for hosts where outbound SMTP is blocked (e.g. Render).
+  emailProvider: (process.env.EMAIL_PROVIDER || '').toLowerCase(),
+  resendApiKey: process.env.RESEND_API_KEY || '',
+  sendgridApiKey: process.env.SENDGRID_API_KEY || '',
+  brevoApiKey: process.env.BREVO_API_KEY || '',
+  // How long a professor invite / sign-in link stays valid.
+  emailLinkTtlMinutes: positiveInt('EMAIL_LINK_TTL_MINUTES', 30),
   storageRoot: path.join(projectRoot, 'storage')
 });

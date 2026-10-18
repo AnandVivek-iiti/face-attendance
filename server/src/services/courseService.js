@@ -4,9 +4,10 @@ const Student = require('../models/Student');
 const AppError = require('../utils/AppError');
 const auditService = require('./auditService');
 const authService = require('./authService');
+const emailService = require('./emailService');
 const { toObjectId } = require('../utils/objectId');
 const AttendanceSession = require('../models/AttendanceSession');
-const { ROLES, AUDIT_ACTIONS, professorPasswordFor } = require('../config/constants');
+const { ROLES, AUDIT_ACTIONS } = require('../config/constants');
 
 const getById = async (id) => {
   const course = await Course.findById(toObjectId(id, 'course id'));
@@ -46,7 +47,7 @@ const list = async (user) => {
   return Promise.all(courses.map(withEnrolledCount));
 };
 
-/** Every course, for students picking one to enroll in. */
+// Every course, for students picking one to enroll in.
 const listAll = async (user) => {
   const includeProfessorEmail = Boolean(user) && user.role !== ROLES.STUDENT;
   const courses = await Course.find().sort({ courseCode: 1, section: 1 });
@@ -59,31 +60,10 @@ const assertProfessor = async (professorId) => {
   return professor;
 };
 
-/**
- * A professor's login password is derived from the course they are first
- * assigned to: IIT@INDORE#<COURSE CODE>. If the professor already has a password
- * (from an earlier course) it is left untouched, so teaching a second course
- * never locks them out.
- */
-const ensureProfessorPassword = async (professorId, courseCode) => {
-  const professor = await User.findById(professorId).select('+passwordHash passwordSetByCourse');
-  if (!professor) return;
-  if (professor.passwordSetByCourse) return;
-  await User.updateOne(
-    { _id: professorId },
-    {
-      $set: {
-        passwordHash: await authService.hashPassword(professorPasswordFor(courseCode)),
-        passwordSetByCourse: courseCode
-      }
-    }
-  );
-};
-
+// A professor's login password is no longer derived from a course code.
 const create = async (data, actor) => {
   await assertProfessor(data.professorId);
   const course = await Course.create(data);
-  await ensureProfessorPassword(course.professorId, course.courseCode);
 
   if (actor) {
     await auditService.record(
@@ -99,15 +79,8 @@ const create = async (data, actor) => {
 const update = async (id, data, actor) => {
   const course = await getById(id);
   if (data.professorId !== undefined) await assertProfessor(data.professorId);
-  const previousProfessorId = course.professorId;
   course.set(data);
   await course.save();
-
-  // professorId arrives as a string and previousProfessorId is an ObjectId, so
-  // compare their string forms (calling .equals on the string threw).
-  if (data.professorId !== undefined && String(data.professorId) !== String(previousProfessorId)) {
-    await ensureProfessorPassword(data.professorId, course.courseCode);
-  }
 
   if (actor) {
     await auditService.record(
@@ -146,27 +119,48 @@ const getOne = async (user, id) => {
   return withEnrolledCount(course);
 };
 
-/** Admin: list provisioned professors so courses can be assigned to one. */
+// Admin: list provisioned professors so courses can be assigned to one.
 const listProfessors = async () => {
-  const professors = await User.find({ role: ROLES.PROFESSOR }).select('name email department').sort({ name: 1 });
+  const professors = await User.find({ role: ROLES.PROFESSOR })
+    .select('name email department emailVerified createdAt')
+    .sort({ name: 1 });
   return professors.map((professor) => professor.toJSON());
 };
 
-/**
- * Admin: provision a professor. No password is set here; it is derived from the
- * first course the professor is assigned to (IIT@INDORE#<COURSE CODE>), so the
- * admin and professor share the course code they already know.
- */
+// One-time link issuance + email delivery, shared by the three admin actions.
+const emailInvite = (professor, link, password) =>
+  emailService.sendProfessorInvite({ to: professor.email, name: professor.name, link, password });
+const emailMagicLink = (professor, link) =>
+  emailService.sendMagicLink({ to: professor.email, name: professor.name, link });
+
+// Admin provisions a professor.
 const addProfessor = async (data, actor) => {
   const existing = await User.findOne({ email: data.email });
   if (existing) throw new AppError('An account with that email already exists', 409, { code: 'EMAIL_TAKEN' });
-  const professor = await User.create({
+
+  const temporaryPassword = authService.generateTemporaryPassword();
+  const professor = new User({
     name: data.name,
     email: data.email,
     role: ROLES.PROFESSOR,
     department: data.department ?? null,
-    passwordSetByCourse: null
+    passwordHash: await authService.hashPassword(temporaryPassword),
+    mustChangePassword: true,
+    emailVerified: false
   });
+
+  let link;
+  try {
+    // Persists the professor and their verification token in one save.
+    ({ link } = await authService.issueEmailVerification(professor));
+  } catch (error) {
+    if (error && error.code === 11000) {
+      throw new AppError('An account with that email already exists', 409, { code: 'EMAIL_TAKEN' });
+    }
+    throw error;
+  }
+  const emailDelivered = await emailInvite(professor, link, temporaryPassword);
+
   if (actor) {
     await auditService.record(
       auditService.userEntry(actor, {
@@ -175,7 +169,48 @@ const addProfessor = async (data, actor) => {
       })
     );
   }
-  return professor.toJSON();
+  return { ...professor.toJSON(), temporaryPassword, inviteLink: link, emailDelivered };
+};
+
+// Admin: resend the professor's sign-in link (does not change the password).
+const inviteProfessor = async (id, actor) => {
+  const professor = await User.findOne({ _id: toObjectId(id, 'professor id'), role: ROLES.PROFESSOR });
+  if (!professor) throw new AppError('Professor not found', 404, { code: 'PROFESSOR_NOT_FOUND' });
+  const { link } = await authService.issueEmailVerification(professor);
+  const emailDelivered = await emailMagicLink(professor, link);
+  if (actor) {
+    await auditService.record(
+      auditService.userEntry(actor, {
+        action: AUDIT_ACTIONS.PROFESSOR_INVITED,
+        after: { professorId: professor._id, email: professor.email }
+      })
+    );
+  }
+  return { professor: professor.toJSON(), inviteLink: link, emailDelivered };
+};
+
+// Admin: regenerate BOTH a random password and a fresh sign-in link.
+const regenerateProfessorCredentials = async (id, actor) => {
+  const professor = await User.findOne({ _id: toObjectId(id, 'professor id'), role: ROLES.PROFESSOR });
+  if (!professor) throw new AppError('Professor not found', 404, { code: 'PROFESSOR_NOT_FOUND' });
+
+  const temporaryPassword = authService.generateTemporaryPassword();
+  professor.passwordHash = await authService.hashPassword(temporaryPassword);
+  professor.mustChangePassword = true;
+  // Revoke any token issued before this reset.
+  professor.passwordChangedAt = new Date();
+  const { link } = await authService.issueEmailVerification(professor);
+  const emailDelivered = await emailInvite(professor, link, temporaryPassword);
+
+  if (actor) {
+    await auditService.record(
+      auditService.userEntry(actor, {
+        action: AUDIT_ACTIONS.PROFESSOR_CREDENTIALS_REGENERATED,
+        after: { professorId: professor._id, email: professor.email }
+      })
+    );
+  }
+  return { professor: professor.toJSON(), temporaryPassword, inviteLink: link, emailDelivered };
 };
 
 const updateProfessor = async (id, data, actor) => {
@@ -225,6 +260,7 @@ module.exports = {
   addProfessor,
   updateProfessor,
   removeProfessor,
-  ensureProfessorPassword,
+  inviteProfessor,
+  regenerateProfessorCredentials,
   assertProfessor
 };

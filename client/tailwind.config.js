@@ -1,9 +1,4 @@
-/**
- * Design tokens — Face Attendance client (terminal theme).
- * Green scale (emerald/teal/lime) replaces the old blue `primary`.
- * Loaded from `src/index.css` via `@config "../tailwind.config.js"` (Tailwind v4
- * does not pick up a JS config file automatically).
- */
+// Design tokens — Face Attendance client (terminal theme).
 export default {
   content: ['./index.html', './src/**/*.{js,jsx}'],
   theme: {

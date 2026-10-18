@@ -4,11 +4,7 @@ import Modal from './ui/Modal';
 import { SearchInput, TextInput } from './ui/Field';
 import FaceCrop from './FaceCrop';
 
-/**
- * Lets the professor point a detected face at a student. If the roll number is
- * not on the roster yet, filling in a name enrolls them on the spot — this is
- * how a course's very first attendance builds its student list.
- */
+// Lets the professor point a detected face at a student.
 export default function ChangeStudentDialog({ open, face, fromRow, rows, image, size, onConfirm, onCancel }) {
   const [mode, setMode] = useState('existing');
   const [query, setQuery] = useState('');
@@ -18,8 +14,7 @@ export default function ChangeStudentDialog({ open, face, fromRow, rows, image, 
 
   useEffect(() => {
     if (open) {
-      // First session has no roster, so the existing-student list is empty —
-      // start on the tab the professor actually needs.
+      // First session has no roster, so the existing-student list is empty — start on the tab the professor actually needs.
       setMode(rows && rows.length ? 'existing' : 'new');
       setQuery('');
       setSelected(null);

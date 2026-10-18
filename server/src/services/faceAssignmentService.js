@@ -15,11 +15,7 @@ const findFace = (session, faceId) => {
   return faces.find((face) => face.faceId === faceId) || null;
 };
 
-// Resolve the student a roll number belongs to inside this course. A new roll
-// number creates the student on the spot, which is how the roster is grown from
-// the photos of a first session.
-// Bulk enrollment does not ask for names. The database key is a UUID; the roll
-// number and name are unique placeholders the professor replaces later.
+// Resolve the student a roll number belongs to inside this course.
 const createGeneratedStudent = async (course, name, department) => {
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const uuid = crypto.randomUUID();
@@ -97,19 +93,14 @@ const evidenceFor = (face) => [
   }
 ];
 
-/**
- * Everything one assignment does EXCEPT writing the face marker back onto the
- * session (callers do that atomically) and the audit entry / session counts
- * (callers batch those).
- */
+// Everything one assignment does EXCEPT writing the face marker back onto the session (callers do that atomically) and the audit entry /...
 const applyAssignment = async (session, course, face, input) => {
   if (!face.embedding || !face.embedding.length) {
     throw new AppError('This face has no embedding to store', 422, { code: 'FACE_NO_EMBEDDING' });
   }
   const { student, created } = await resolveStudent(course, input.rollNumber, input.name, input.department);
 
-  // Keep several classroom captures per student. The one we are assigning now
-  // may be taken from an awkward angle, so it joins rather than replaces.
+  // Keep several classroom captures per student.
   await studentService.appendEmbedding(
     student,
     face.embedding,
@@ -153,9 +144,7 @@ const assignFace = async (sessionId, faceId, user, body) => {
   const course = await courseService.getById(session.courseId);
   const { student, created } = await applyAssignment(session, course, face, body);
 
-  // Atomic positional update of just this face. The old code wrote the whole
-  // (stale) analysis blob back, so enrolling several faces at once let each
-  // request overwrite the others' markers and faces reappeared as "Pending".
+  // Atomic positional update of just this face.
   await AttendanceSession.updateOne(
     { _id: session._id, 'analysis.faces.faceId': face.faceId },
     { $set: faceMarker('analysis.faces.$', student, face) }
@@ -184,11 +173,7 @@ const assignFace = async (sessionId, faceId, user, body) => {
   };
 };
 
-/**
- * Enroll many faces in one request ("enroll the whole page"). One session load,
- * one course load, one marker write, one count refresh; a bad row is reported
- * per face and does not stop the others.
- */
+// Enroll many faces in one request ("enroll the whole page").
 const assignFaces = async (sessionId, user, { assignments }) => {
   const session = await sessionService.getOwnedSession(sessionId, user);
   assertAssignable(session);
@@ -198,8 +183,7 @@ const assignFaces = async (sessionId, user, { assignments }) => {
   const markers = [];
   const audits = [];
   const thumbnails = [];
-  // Sequential on purpose: two rows with the same new roll number must see each
-  // other's student instead of racing to create it.
+  // Sequential on purpose: two rows with the same new roll number must see each other's student instead of racing to create it.
   for (const input of assignments) {
     const face = findFace(session, input.faceId);
     if (!face) {

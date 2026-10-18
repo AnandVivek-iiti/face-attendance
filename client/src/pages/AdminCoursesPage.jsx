@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Pencil, Plus, Trash2, UserPlus } from 'lucide-react';
+import { CheckCircle2, Copy, KeyRound, Mail, Pencil, Plus, Trash2, UserPlus } from 'lucide-react';
 import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
@@ -20,10 +20,11 @@ import {
   addProfessor,
   updateProfessor,
   deleteProfessor,
+  inviteProfessor,
+  regenerateProfessor,
   getDepartments,
   createDepartment,
   deleteDepartment,
-  updateDepartment,
 } from '../services/courseService';
 import { getErrorMessage } from '../utils/errors';
 
@@ -207,11 +208,22 @@ function ProfessorList({ professors, onCreated }) {
   const [form, setForm] = useState({ name: '', email: '', department: '' });
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState(null);
+  // Credentials/link returned by an invite or regenerate, shown for sharing.
+  const [share, setShare] = useState(null);
 
   const close = () => {
     setOpen(false);
     setEditing(null);
     setCreated(null);
+  };
+
+  const copy = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success('Copied to clipboard.');
+    } catch {
+      toast.error('Could not copy — select and copy manually.');
+    }
   };
 
   const openEdit = (prof) => {
@@ -227,13 +239,40 @@ function ProfessorList({ professors, onCreated }) {
         await updateProfessor(editing.id, { name: form.name, department: form.department });
         toast.success('Professor updated.');
       } else {
-        await addProfessor(form);
-        setCreated({ name: form.name, email: form.email });
+        const result = await addProfessor(form);
+        setCreated({ name: form.name, email: form.email, ...result });
         toast.success(`${form.name} added.`);
       }
       setForm({ name: '', email: '', department: '' });
       setEditing(null);
       onCreated();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const invite = async (prof) => {
+    setBusy(true);
+    try {
+      const result = await inviteProfessor(prof.id);
+      setShare({ professor: prof, ...result });
+      toast.success(`Sign-in link ready for ${prof.name}.`);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const regenerate = async (prof) => {
+    if (!window.confirm(`Regenerate a new password and link for ${prof.name}? Their current password will stop working.`)) return;
+    setBusy(true);
+    try {
+      const result = await regenerateProfessor(prof.id);
+      setShare({ professor: prof, ...result });
+      toast.success(`New credentials ready for ${prof.name}.`);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
@@ -254,6 +293,10 @@ function ProfessorList({ professors, onCreated }) {
 
   return (
     <div>
+      <p className="mb-3 text-xs text-muted">
+        Professors sign in with a one-time email link, or with the random password you share. They can change their
+        password and profile only after verifying their email.
+      </p>
       <div className="mb-3">
         <Button size="sm" icon={UserPlus} onClick={() => { setForm({ name: '', email: '', department: '' }); setEditing(null); setOpen(true); }}>
           Add professor
@@ -283,6 +326,17 @@ function ProfessorList({ professors, onCreated }) {
                 </Badge>
               </div>
 
+              <p className="mt-2 flex items-center gap-1.5 text-xs">
+                {prof.emailVerified ? (
+                  <>
+                    <CheckCircle2 size={14} className="text-ok" aria-hidden="true" />
+                    <span className="text-ok">Email verified</span>
+                  </>
+                ) : (
+                  <span className="text-warn">Email not verified</span>
+                )}
+              </p>
+
               <div className="mt-4 flex flex-wrap gap-2">
                 <Button
                   size="sm"
@@ -291,6 +345,26 @@ function ProfessorList({ professors, onCreated }) {
                   onClick={() => openEdit(prof)}
                 >
                   Edit
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={Mail}
+                  onClick={() => invite(prof)}
+                  disabled={busy}
+                >
+                  Send invite
+                </Button>
+
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  icon={KeyRound}
+                  onClick={() => regenerate(prof)}
+                  disabled={busy}
+                >
+                  Regenerate
                 </Button>
 
                 <Button
@@ -306,6 +380,7 @@ function ProfessorList({ professors, onCreated }) {
           ))}
         </div>
       )}
+
       <Modal open={open} title={created ? 'Professor added' : editing ? 'Edit professor' : 'Add professor'} onClose={close}>
         {created ? (
           <div className="space-y-3">
@@ -313,11 +388,15 @@ function ProfessorList({ professors, onCreated }) {
               {created.name} ({created.email}) was added.
             </p>
             <p className="text-sm text-muted">
-              Their password is derived from their first course:{' '}
-              <span className="font-mono text-ink">IIT@INDORE#&lt;COURSE CODE&gt;</span> (for example{' '}
-              <span className="font-mono text-ink">IIT@INDORE#ME217</span>). Assign the professor to a course to
-              activate it.
+              {created.emailDelivered
+                ? 'An invite with a sign-in link and temporary password was emailed to them.'
+                : 'Email is not configured, so share the link and temporary password below.'}
             </p>
+            <CredentialBlock
+              link={created.inviteLink}
+              password={created.temporaryPassword}
+              onCopy={copy}
+            />
             <div className="flex justify-end pt-2">
               <Button variant="primary" onClick={close}>Done</Button>
             </div>
@@ -329,8 +408,7 @@ function ProfessorList({ professors, onCreated }) {
             <TextInput label="Department" value={form.department} onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))} placeholder="ME" />
             {!editing && (
               <p className="text-xs text-muted">
-                The professor signs in with <span className="font-mono">IIT@INDORE#&lt;COURSE CODE&gt;</span>, set from
-                the first course you assign them.
+                We generate a random password and email a one-time sign-in link. Share them if the email does not arrive.
               </p>
             )}
             <div className="flex justify-end gap-2 pt-2">
@@ -342,6 +420,52 @@ function ProfessorList({ professors, onCreated }) {
           </div>
         )}
       </Modal>
+
+      <Modal open={Boolean(share)} title="Share with professor" onClose={() => setShare(null)}>
+        {share && (
+          <div className="space-y-3">
+            <p className="text-sm text-ink">
+              {share.professor.name} ({share.professor.email})
+            </p>
+            <p className="text-sm text-muted">
+              {share.emailDelivered
+                ? 'Emailed to the professor. You can also share it directly.'
+                : 'Email is not configured — share these details with the professor yourself.'}
+            </p>
+            <CredentialBlock link={share.inviteLink} password={share.temporaryPassword} onCopy={copy} />
+            <div className="flex justify-end pt-2">
+              <Button variant="primary" onClick={() => setShare(null)}>Done</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function CredentialBlock({ link, password, onCopy }) {
+  return (
+    <div className="space-y-2 rounded-lg border border-line p-3 text-sm">
+      <div>
+        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Sign-in link</p>
+        <div className="flex items-center gap-2">
+          <code className="min-w-0 flex-1 break-all text-xs text-ink">{link}</code>
+          <Button size="sm" variant="ghost" icon={Copy} onClick={() => onCopy(link)} aria-label="Copy link">
+            Copy
+          </Button>
+        </div>
+      </div>
+      {password && (
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted">Temporary password</p>
+          <div className="flex items-center gap-2">
+            <code className="min-w-0 flex-1 break-all text-xs text-ink">{password}</code>
+            <Button size="sm" variant="ghost" icon={Copy} onClick={() => onCopy(password)} aria-label="Copy password">
+              Copy
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

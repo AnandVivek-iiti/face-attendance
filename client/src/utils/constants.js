@@ -9,8 +9,7 @@ export const DECISION = {
 
 export const IMAGE_QUALITY = { GOOD: 'good', POOR: 'poor', UNUSABLE: 'unusable' };
 
-// These must match the server's SESSION_STATUS exactly. The server calls the
-// post-analysis state "review" and the in-flight state "processing".
+// These must match the server's SESSION_STATUS exactly.
 export const SESSION_STATUS = {
   DRAFT: 'draft',
   PROCESSING: 'processing',

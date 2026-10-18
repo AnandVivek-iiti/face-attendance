@@ -39,7 +39,7 @@ const image = (value) => ({
   mimeType: value.mimeType,
   size: value.size,
   uploadedAt: value.uploadedAt,
-  // The client renders photos from this URL. The server serves /api/files.
+  // The client renders photos from this URL.
   url: value.path ? `/api/files/${value.path}` : null,
   imageQuality:
     value.quality && value.quality.status
@@ -110,9 +110,7 @@ const sessionSummary = (value, courseDoc) => ({
   createdAt: value.createdAt
 });
 
-// The stored analysis keeps every detected face's embedding so a later
-// assignment can reuse it. Those vectors are biometric data and the browser has
-// no use for them, so they are removed from anything sent to a client.
+// The stored analysis keeps every detected face's embedding so a later assignment can reuse it.
 const publicAnalysis = (analysis) => {
   if (!analysis) return null;
   const plain = typeof analysis.toObject === 'function' ? analysis.toObject() : analysis;
@@ -124,10 +122,7 @@ const publicAnalysis = (analysis) => {
   };
 };
 
-/**
- * Full session payload. Faces are distributed onto their image and also kept in
- * a flat list, so a client can render either the gallery or a face list.
- */
+// Full session payload.
 const session = (value, courseDoc) => {
   const analysis = value.analysis || null;
   const images = (value.uploadedImages || []).map(image);

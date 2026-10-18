@@ -20,8 +20,3 @@ export async function getAttendance() {
   const payload = unwrap(await http.get('/api/students/attendance'));
   return payload;
 }
-
-export async function getMyRequests() {
-  const payload = unwrap(await http.get('/api/students/requests'));
-  return Array.isArray(payload) ? payload : payload?.requests ?? [];
-}

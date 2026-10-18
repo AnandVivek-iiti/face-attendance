@@ -10,13 +10,12 @@ A full-stack face-attendance system for IIT Indore, enabling professors to take 
 | **Node Server** | Node.js + Express + MongoDB | Single writer to Mongo. Batched ML call per session. Persists faces+embeddings. Handles auto-absent, assign-face (upserts Student + embedding), CSV export, session image serving. |
 | **Client** | React + Vite + Tailwind (glassmorphism theme) | Professor UI: session create, photo upload, face assign, review/export. Student UI: profile, past attendance, requests. Admin: course/Department CRUD, professor provisioning. |
 
-## Default Test Course
+## Professor Provisioning & Sign-In
 
-- **Course**: ME217 – INDUSTRIAL DATA ANALYTICS
-- **Semester**: 5, **Section**: A
-- **Room**: L03
-- **Professor**: Pradeep Kundu (`pradeep.kundu@iiti.ac.in`)
-- **Password**: derived from the course code — `IIT@INDORE#ME217`. It is set when a professor is first assigned to a course; `npm run seed:professor` prints it for the seeded professor.
+- An admin creates a course and adds a professor to it (Admin → Courses).
+- Each professor gets a **random temporary password** and a **one-time emailed sign-in link**; the admin can copy/share both when email is not configured.
+- Professors sign in with the emailed link or the shared password, then set their own password.
+- `npm run user:create` (in `server/`) bootstraps the first admin account.
 
 ## Professors Flow
 
@@ -38,7 +37,7 @@ A full-stack face-attendance system for IIT Indore, enabling professors to take 
 |--------|------|-------------|
 | `POST` | `/api/auth/login` | Login; first login creates account (`@iiti.ac.in` enforced). |
 | `POST` | `/api/courses` | Admin creates a course. |
-| `POST` | `/api/courses/professors` | Admin provisions a professor; their password is set from their first course (`IIT@INDORE#<COURSE CODE>`). |
+| `POST` | `/api/courses/professors` | Admin provisions a professor: random temporary password + emailed one-time sign-in link. |
 | `POST` | `/api/attendance/sessions` | Professor creates a new attendance session. |
 | `POST` | `/api/attendance/sessions/:id/images` | Upload classroom photos for the session. |
 | `POST` | `/api/attendance/sessions/:id/analyze` | Batched ML call: returns faces + matches. |
@@ -63,8 +62,8 @@ A full-stack face-attendance system for IIT Indore, enabling professors to take 
 - **Port**: 5000
 - **ML service URL**: `http://127.0.0.1:8000` (configurable via `ML_SERVICE_URL`)
 - **CORS**: `credentials: true`, helmet `crossOriginResourcePolicy: cross-origin`
-- **Crypto**: professor passwords are derived from their course code (`IIT@INDORE#<COURSE CODE>`), stored only as a **bcrypt hash** (`bcrypt.hash`, cost 12); login verifies with `bcrypt.compare`. No plaintext passwords in the DB. Because the course code is guessable, treat it as a secret.
-- **Env files**: `server/.env` and `ml-service/.env` **must not be modified**. Code reads `process.env` with defaults (`mlApiKey` defaults to `''`).
+- **Crypto**: passwords (including the random temporary ones) are stored only as a **bcrypt hash** (cost 12); login verifies with `bcrypt.compare`. One-time sign-in links store only a SHA-256 token hash, are single-use, and expire.
+- **Env files**: copy the `.env.example` templates to `.env` and fill in the values; see "Environment & Keys" below.
 
 ## Client (React + Vite)
 
@@ -141,12 +140,12 @@ npm install          # once
 npm run dev          # starts on http://localhost:5173
 ```
 
-### 4. Seed DB (once, MongoDB on 27017 must be running)
+### 4. Create the first admin (once — MongoDB on 27017 must be running)
 
 Same commands on **all** OSes:
 ```bash
 cd server
-npm run seed:professor   # creates ME217 course + professor, prints IIT@INDORE#ME217
+npm run user:create      # prompts for the admin email + password
 ```
 
 ### Troubleshooting
@@ -157,6 +156,23 @@ npm run seed:professor   # creates ME217 course + professor, prints IIT@INDORE#M
 | `[Errno 10048] ... port 8000` / `only one usage of each socket address` | ML service is **already running** — you started it twice | Don't start a second copy. Verify the first one with the `/health` check above and keep using it |
 | `Activate.ps1` blocked by execution policy | PowerShell script policy | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`, then activate again (process-scope only, no system change) |
 | `ECONNREFUSED 127.0.0.1:5000` | Node server isn't running | Start it (`cd server` → `npm run dev`) in its own terminal and leave it running |
+
+## Environment & Keys
+
+Copy `server/.env.example` → `server/.env`, `ml-service/.env.example` → `ml-service/.env`, and `client/.env.example` → `client/.env`, then fill in the values.
+
+| Variable | Where to get it |
+|----------|-----------------|
+| `MONGODB_URI` | Local: `mongodb://localhost:27017/face_attendance`. Cloud: MongoDB Atlas → Database → Connect → Drivers. |
+| `JWT_SECRET` | Generate: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`. |
+| `ML_API_KEY` / `API_KEY` | Invent a random string; use the **same** value on the server (`ML_API_KEY`) and ML service (`API_KEY`). Sent as the `X-API-Key` header. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google Cloud Console → APIs & Services → Credentials → Create OAuth client ID (Web application). |
+| `SMTP_USER` / `SMTP_PASS` | Any mailbox. Gmail: enable 2FA → create an **App password**; set `SMTP_HOST=smtp.gmail.com`, `SMTP_USER=<address>`, `SMTP_PASS=<app password>`. |
+| `RESEND_API_KEY` / `SENDGRID_API_KEY` / `BREVO_API_KEY` | Failover for hosts that block outbound SMTP (e.g. Render): create an API key at resend.com / sendgrid.com / brevo.com and set the matching variable. Providers are tried automatically in order **SMTP → Resend → SendGrid → Brevo**, and any that fail are skipped. Only ones with a key set are used; optional `EMAIL_PROVIDER` pins a single one. |
+| `SERVER_URL` | Public origin of the server (used to build emailed sign-in links); defaults to `http://localhost:5000`. |
+| `CLIENT_URL`, `VITE_API_BASE_URL`, `VITE_ASSET_BASE_URL`, `ML_SERVICE_URL` | Your own service URLs (localhost in dev, deployed URLs in production). |
+
+Google OAuth: create a project, configure the OAuth consent screen, add the **Authorized redirect URI** `https://<server-host>/api/auth/google/callback`, then copy the Client ID and secret. The secret is server-side only — never put it in `client/.env`.
 
 ## Deployment (Render)
 
@@ -173,13 +189,13 @@ Google sign-in requires `GOOGLE_CALLBACK_URL=https://<server-host>/api/auth/goog
 
 | Suite | Result |
 |-------|--------|
-| `npm test` (server) | 29 passed, 1 skipped |
+| `npm test` (server) | 37 passed, 1 skipped |
 | `python -m pytest` (ML) | 49 passed, 7 skipped |
 | `npm run build` (client) | 1711 modules, no errors |
 
 ## Constraints
 
-- **Env files**: `server/.env`, `ml-service/.env` — **do not edit**. Code may read `process.env` with defaults.
+- **Env files**: copy the `.env.example` templates to `.env`; never commit real secrets.
 - **Professor flow only**: student self-service, admin CRUD (outside professor scope) are documented but not the focus of this integration.
 - **MongoDB** must be running on `27017` before server start.
 - **CPU-only ML**: no CUDA; expect ~30–60s batch latency per session.

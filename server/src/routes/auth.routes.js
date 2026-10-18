@@ -2,8 +2,10 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const validate = require('../middleware/validate');
 const authenticate = require('../middleware/authenticate');
+const authorizeRole = require('../middleware/authorizeRole');
 const schemas = require('../utils/validation');
 const controller = require('../controllers/auth.controller');
+const { ROLES } = require('../config/constants');
 const {
   authenticateGoogle,
   authenticateGoogleCallback,
@@ -24,8 +26,7 @@ const limited = (options) =>
 // Per client IP: stops one machine hammering many accounts.
 const loginLimiter = limited({ limit: 30 });
 
-// Per target account: stops a distributed guess against one account. Only failed
-// attempts count, so a real user who signs in correctly is never locked out.
+// Per target account: stops a distributed guess against one account.
 const accountLimiter = limited({
   limit: 10,
   skipSuccessfulRequests: true,
@@ -33,6 +34,12 @@ const accountLimiter = limited({
 });
 
 const passwordLimiter = limited({ limit: 10, skipSuccessfulRequests: true });
+
+// Stops one address being mail-bombed with sign-in links.
+const magicLinkLimiter = limited({
+  limit: 5,
+  keyGenerator: (req) => `magic:${String((req.body && req.body.email) || '').trim().toLowerCase().slice(0, 254)}`
+});
 
 router.get('/config', controller.config);
 router.get('/me', authenticate, controller.me);
@@ -44,6 +51,19 @@ router.post(
   validate({ body: schemas.changePassword }),
   controller.changePassword
 );
+
+// A professor edits their own name/department (requires a verified email).
+router.patch(
+  '/profile',
+  authenticate,
+  authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR),
+  validate({ body: schemas.updateProfessorProfile }),
+  controller.updateProfile
+);
+
+// Professor email sign-in: request a one-time link, then open the emailed link.
+router.post('/magic-link', magicLinkLimiter, validate({ body: schemas.magicLink }), controller.requestMagicLink);
+router.get('/verify-email', passwordLimiter, controller.verifyEmail);
 
 router.get('/google', loginLimiter, authenticateGoogle);
 router.get('/google/callback', loginLimiter, authenticateGoogleCallback, googleCallback);

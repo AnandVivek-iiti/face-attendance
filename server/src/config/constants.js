@@ -21,12 +21,6 @@ const ENROLLMENT_REQUEST_STATUS = Object.freeze({
 // Every account at IIIT Indore is keyed on an institutional email.
 const IIIT_EMAIL_DOMAIN = 'iiti.ac.in';
 
-// A professor's password is derived from the course they are first assigned to:
-// IIT@INDORE#<COURSE CODE>, e.g. ME217 -> IIT@INDORE#ME217. Chosen deliberately
-// over random one-time passwords so a professor can sign in with the course code
-// the admin already knows. It is guessable, so treat the course code as a secret.
-const professorPasswordFor = (courseCode) => `IIT@INDORE#${String(courseCode).toUpperCase()}`;
-
 const AI_DECISION = Object.freeze({
   HIGH: 'high_confidence',
   REVIEW: 'needs_review',
@@ -52,8 +46,7 @@ const IMAGE_MIME_TYPES = Object.freeze({
   'image/webp': '.webp'
 });
 
-// Keep these aligned with the ML service (MAX_IMAGES_PER_REQUEST=5) and the
-// client (MAX_IMAGES=5). One analysis request carries the whole batch.
+// Keep these aligned with the ML service (MAX_IMAGES_PER_REQUEST=5) and the client (MAX_IMAGES=5).
 const LIMITS = Object.freeze({
   IMAGES_PER_REQUEST: 5,
   IMAGES_PER_SESSION: 5,
@@ -84,6 +77,8 @@ const AUDIT_ACTIONS = Object.freeze({
   PROFESSOR_ADDED: 'professor_added',
   PROFESSOR_UPDATED: 'professor_updated',
   PROFESSOR_REMOVED: 'professor_removed',
+  PROFESSOR_INVITED: 'professor_invited',
+  PROFESSOR_CREDENTIALS_REGENERATED: 'professor_credentials_regenerated',
   DEPARTMENT_CREATED: 'department_created',
   DEPARTMENT_REMOVED: 'department_removed'
 });
@@ -95,7 +90,6 @@ module.exports = {
   RECORD_SOURCE,
   ENROLLMENT_REQUEST_STATUS,
   IIIT_EMAIL_DOMAIN,
-  professorPasswordFor,
   AI_DECISION,
   ML_DECISION,
   ML_PATHS,

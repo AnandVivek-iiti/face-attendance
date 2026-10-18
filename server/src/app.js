@@ -14,8 +14,7 @@ const SHUTDOWN_TIMEOUT_MS = 10 * 1000;
 const createApp = () => {
   const app = express();
   app.disable('x-powered-by');
-  // Without this, every client behind a proxy shares one IP and the rate limits
-  // below either block everyone or (if mis-set) nobody.
+  // Without this, every client behind a proxy shares one IP and the rate limits below either block everyone or (if mis-set) nobody.
   if (env.trustProxy > 0) app.set('trust proxy', env.trustProxy);
 
   // Allow the dev client to render session photos served from this origin.
@@ -36,7 +35,6 @@ const createApp = () => {
   );
 
   // API responses carry personal data; never let a shared cache keep them.
-  // (The file route sets its own private caching header afterwards.)
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-store');
     next();
@@ -64,8 +62,7 @@ const start = async () => {
   await storageService.cleanTemporary();
   await db.connect();
 
-  // Uploads abandoned mid-request would otherwise sit in /temporary until the
-  // next restart.
+  // Uploads abandoned mid-request would otherwise sit in /temporary until the next restart.
   const cleaner = setInterval(() => {
     storageService.cleanTemporary().catch((error) => console.error('Temp cleanup failed', error));
   }, TEMP_CLEAN_INTERVAL_MS);
@@ -73,6 +70,7 @@ const start = async () => {
 
   const server = app.listen(env.port, () => {
     console.log(`Server listening on port http://localhost:${env.port}`);
+    console.log(`Allowed client origins: ${env.clientOrigins.join(', ')}`);
   });
 
   let shuttingDown = false;

@@ -59,7 +59,6 @@ const embeddingSchema = z.object({
 const invalidResponse = () => new AppError('Invalid ML service response', 502, { code: 'ML_INVALID_RESPONSE' });
 
 // The ML service reports errors as {"error": {"code": "...", "message": "..."}}.
-// Older FastAPI-style bodies used a flat "detail" string; accept both.
 const rejectionMessage = (body) => {
   if (body && body.error && typeof body.error.message === 'string') return body.error.message;
   if (body && typeof body.detail === 'string') return body.detail;
@@ -69,7 +68,12 @@ const rejectionMessage = (body) => {
 
 const rejectionCode = (body) => (body && body.error && typeof body.error.code === 'string' ? body.error.code : null);
 
-const post = async (path, form) => {
+const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve());
+
+// Transient failures worth retrying: a briefly unreachable host (a restarting tunnel, a cold start) or a 5xx.
+const RETRYABLE_CODES = new Set(['ML_UNAVAILABLE', 'ML_ERROR']);
+
+const request = async (path, form) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), env.mlTimeoutMs);
   try {
@@ -94,8 +98,7 @@ const post = async (path, form) => {
       body = null;
     }
 
-    // Our credentials or the route are wrong: that is a server misconfiguration,
-    // not a bad image, so do not blame the user's photo for it.
+    // Our credentials or the route are wrong: that is a server misconfiguration, not a bad image, so do not blame the user's photo for it.
     if ([401, 403, 404].includes(response.status)) {
       throw new AppError('ML service rejected the server request', 502, { code: 'ML_AUTH_FAILED' });
     }
@@ -110,6 +113,18 @@ const post = async (path, form) => {
   }
 };
 
+const post = async (path, form) => {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await request(path, form);
+    } catch (error) {
+      if (attempt >= env.mlRetryAttempts || !RETRYABLE_CODES.has(error.code)) throw error;
+      // Linear backoff: delay, 2*delay, ...
+      await sleep(env.mlRetryDelayMs * attempt);
+    }
+  }
+};
+
 const imageBlob = (buffer, filename, mimeType) => new Blob([buffer], { type: mimeType });
 
 const parse = (schema, body) => {
@@ -118,12 +133,7 @@ const parse = (schema, body) => {
   return result.data;
 };
 
-/**
- * Crop several faces from one image in a single call. The ML service decodes the
- * photo once and returns one base64 JPEG per box (null for a bad box).
- *
- * @param {Array<number[]>} boxes - [x1, y1, x2, y2] in the image's pixels
- */
+// Crop several faces from one image in a single call.
 const cropFaces = async ({ buffer, filename, mimeType, boxes }) => {
   const form = new FormData();
   form.append('image', imageBlob(buffer, filename, mimeType), filename);
@@ -139,13 +149,7 @@ const generateEmbedding = async ({ buffer, filename, mimeType }) => {
   return parse(embeddingSchema, body);
 };
 
-/**
- * Send every classroom image in a single request so the ML service can
- * deduplicate a student across photos and return image-prefixed face ids.
- *
- * @param {Array<{buffer: Buffer, filename: string, mimeType: string}>} images
- * @param {Array<{studentId: string, embeddings: number[][]}>} gallery
- */
+// Send every classroom image in a single request so the ML service can deduplicate a student across photos and return image-prefixed face ids.
 const analyzeClassroom = async ({ images, gallery, embeddingModel, includeEmbeddings = true, allowEmptyStudents = false }) => {
   const form = new FormData();
   images.forEach((image) => {

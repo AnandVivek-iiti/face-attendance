@@ -1,8 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
-// Live theme switching. The active theme is a data-theme attribute on <html>;
-// every colour in index.css is a CSS variable keyed off it, so switching is one
-// attribute change. The choice is kept in localStorage.
+// Live theme switching.
 
 const KEY = 'face-attendance.theme';
 const DEFAULT_THEME = 'matrix';
@@ -46,7 +44,7 @@ export function getTheme() {
   return current;
 }
 
-/** Switches theme with a short cross-fade, and remembers the choice. */
+// Switches theme with a short cross-fade, and remembers the choice.
 export function setTheme(id) {
   if (!isValid(id) || id === current) return;
   current = id;

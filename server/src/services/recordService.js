@@ -85,9 +85,7 @@ const updateRecord = async (sessionId, studentRef, user, body) => {
   let record = await AttendanceRecord.findOne({ sessionId: session._id, studentId: student._id });
   let isNew = false;
   if (!record) {
-    // A student added to the roster during review has no record yet. Create one
-    // so the professor's manual mark persists. It must still be a student of
-    // this course's cohort: otherwise a professor could put anyone on a class.
+    // A student added to the roster during review has no record yet.
     const course = await courseService.getById(session.courseId);
     if (!student.active || student.semester !== course.semester || student.section !== course.section) {
       throw new AppError('That student is not enrolled in this course', 409, { code: 'STUDENT_NOT_IN_COURSE' });
@@ -101,8 +99,7 @@ const updateRecord = async (sessionId, studentRef, user, body) => {
     isNew = true;
   }
   const result = await changeStatus(session, record, student, user, body);
-  // changeStatus recounts from the database, so the totals already include the
-  // new record; nothing else to adjust.
+  // changeStatus recounts from the database, so the totals already include the new record; nothing else to adjust.
   return isNew ? { ...result, created: true } : result;
 };
 

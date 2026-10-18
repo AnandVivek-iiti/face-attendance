@@ -17,9 +17,7 @@ import { getStudents } from '../services/studentService';
 import { ROLES } from '../utils/constants';
 import { getErrorMessage } from '../utils/errors';
 
-// Students are not embedded in the course payload. The server defines the roster
-// (and the "enrolled" count) as every ACTIVE student in the course's semester +
-// section, so the dialog asks for exactly that.
+// Students are not embedded in the course payload.
 function CourseStudentsDialog({ course, onClose }) {
   const { data, loading, error, reload } = useAsync(
     () => getStudents({ semester: course.semester, section: course.section, active: true }),
