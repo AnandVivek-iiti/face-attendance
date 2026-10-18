@@ -43,8 +43,7 @@ def parse_students(raw: str, settings: Settings, dim: int, allow_empty: bool = F
         raise AppError("INVALID_STUDENTS", "students must be a valid JSON array", 422)
     if not isinstance(payload, list):
         raise AppError("INVALID_STUDENTS", "students must be a JSON array", 422)
-    # An empty gallery is legitimate on a course's first session: the service
-    # still detects faces and returns embeddings so the roster can be built.
+    # An empty gallery is legitimate on a course's first session: the service still detects faces and returns embeddings so the roster can be...
     if not payload and not allow_empty:
         raise AppError("INVALID_STUDENTS", "students must be a non-empty array", 422)
     if len(payload) > settings.max_students_per_request:

@@ -28,6 +28,9 @@ def error_body(code: str, message: str, details: list | None = None) -> dict:
 async def lifespan(app: FastAPI):
     settings = get_settings()
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    if not settings.api_key:
+        # Fail-open by design for local dev; make it loud because an unauthenticated service must never be exposed to the internet.
+        logger.warning("API_KEY is not set: the ML endpoints are unauthenticated.")
     registry = ModelRegistry(settings)
     app.state.settings = settings
     app.state.registry = registry
