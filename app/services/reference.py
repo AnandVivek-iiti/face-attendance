@@ -53,7 +53,7 @@ class ReferenceService:
         face = faces[largest]
         aligned = self._recognition.align(working, face.keypoints)
         quality = assess_face(face, working, settings)
-        self._validate_reference_quality(face.score, quality)
+        self._validate_reference_quality(quality)
 
         embedding = self._recognition.embed([aligned])[0]
         height, width = working.shape[:2]
@@ -68,13 +68,13 @@ class ReferenceService:
             bbox=bbox,
         )
 
-    def _validate_reference_quality(self, detection_score: float, quality) -> None:
+    def _validate_reference_quality(self, quality) -> None:
         settings = self._settings
         if quality.side < settings.reference_min_face_side:
             raise AppError("FACE_TOO_SMALL", "Face in the reference image is too small.", 422)
         if quality.sharpness < settings.reference_min_face_sharpness:
             raise AppError("FACE_TOO_BLURRY", "Face in the reference image is too blurry.", 422)
-        if detection_score < settings.reference_min_detection_score or quality.frontalness < settings.reference_min_frontalness:
+        if quality.frontalness < settings.reference_min_frontalness:
             raise AppError("FACE_POOR_QUALITY", "Face must be clearly visible and facing the camera.", 422)
         if quality.tier == "reject":
             raise AppError("FACE_POOR_QUALITY", "Face quality is too low for registration.", 422)
