@@ -53,7 +53,6 @@ class Settings(BaseSettings):
 
     reference_min_face_side: int = 96
     reference_min_face_sharpness: float = 0.30
-    reference_min_detection_score: float = 0.60
     reference_min_frontalness: float = 0.50
     reference_secondary_face_area_ratio: float = 0.15
     reference_pad_fallback: bool = True
