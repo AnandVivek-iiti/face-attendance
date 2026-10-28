@@ -1,9 +1,13 @@
-const AuditLog = require('../models/AuditLog');
+const env = require('../config/env');
 
 const userEntry = (user, entry) => ({ actorType: 'user', actorId: user._id, ...entry });
 
-const record = (entry) => AuditLog.create(entry);
+const isEnabled = () => env.auditLogEnabled;
 
-const recordMany = (entries) => (entries.length ? AuditLog.insertMany(entries) : Promise.resolve([]));
+const model = () => require('../models/AuditLog');
 
-module.exports = { record, recordMany, userEntry };
+const record = async (entry) => (isEnabled() ? model().create(entry) : null);
+
+const recordMany = async (entries) => (isEnabled() && entries.length ? model().insertMany(entries) : []);
+
+module.exports = { record, recordMany, userEntry, isEnabled };

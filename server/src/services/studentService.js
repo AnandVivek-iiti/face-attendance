@@ -2,6 +2,7 @@ const Student = require('../models/Student');
 const Course = require('../models/Course');
 const EnrollmentRequest = require('../models/EnrollmentRequest');
 const AttendanceRecord = require('../models/AttendanceRecord');
+const AttendanceSession = require('../models/AttendanceSession');
 const User = require('../models/User');
 const AppError = require('../utils/AppError');
 const mlClient = require('./mlClient');
@@ -9,7 +10,7 @@ const storageService = require('./storageService');
 const auditService = require('./auditService');
 const { isObjectId } = require('../utils/objectId');
 const { skipFor, toPagination } = require('../utils/pagination');
-const { ROLES, ENROLLMENT_REQUEST_STATUS, AUDIT_ACTIONS, RECORD_STATUS, SESSION_STATUS } = require('../config/constants');
+const { ROLES, ENROLLMENT_REQUEST_STATUS, AUDIT_ACTIONS, RECORD_STATUS, SESSION_STATUS, ML_DECISION } = require('../config/constants');
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -98,11 +99,69 @@ const update = async (user, ref, data) => {
   return student;
 };
 
-const deactivate = async (ref) => {
+const ownedFilePaths = (paths) =>
+  paths.filter(
+    (value) =>
+      typeof value === 'string' && (value.startsWith('registered-faces/') || value.startsWith('profile-images/'))
+  );
+
+const remove = async (ref) => {
+  const recordService = require('./recordService');
   const student = await getByRef(ref);
-  student.active = false;
-  await student.save();
-  return student;
+
+  const cohort = await Course.find({ semester: student.semester, section: student.section }).select('_id').lean();
+  if (cohort.length) {
+    const busy = await AttendanceSession.exists({
+      courseId: { $in: cohort.map((course) => course._id) },
+      status: SESSION_STATUS.PROCESSING
+    });
+    if (busy) {
+      throw new AppError('Attendance analysis is running for this student\'s course. Try again when it finishes.', 409, {
+        code: 'ANALYSIS_IN_PROGRESS'
+      });
+    }
+  }
+
+  const sessionIds = await AttendanceRecord.distinct('sessionId', { studentId: student._id });
+  const { deletedCount: recordsRemoved } = await AttendanceRecord.deleteMany({ studentId: student._id });
+  await Promise.all(sessionIds.map((sessionId) => recordService.refreshSessionCounts(sessionId)));
+
+  await AttendanceSession.updateMany(
+    { 'analysis.faces.studentId': student.studentId },
+    {
+      $set: {
+        'analysis.faces.$[face].studentId': null,
+        'analysis.faces.$[face].similarity': null,
+        'analysis.faces.$[face].decision': ML_DECISION.UNKNOWN
+      }
+    },
+    { arrayFilters: [{ 'face.studentId': student.studentId }] }
+  );
+
+  const photoPaths = [student.registeredImage];
+  const linkedUsers = await User.find({ studentId: String(student._id) }).select('_id').lean();
+  if (linkedUsers.length) {
+    const userIds = linkedUsers.map((user) => user._id);
+    await User.updateMany(
+      { _id: { $in: userIds } },
+      {
+        $unset: { studentId: 1 },
+        $set: { 'profile.rollNumber': null, 'profile.year': null, 'profile.semester': null, 'profile.department': null }
+      }
+    );
+    const requests = await EnrollmentRequest.find({ userId: { $in: userIds }, rollNumber: student.rollNumber })
+      .select('imagePath')
+      .lean();
+    if (requests.length) {
+      await EnrollmentRequest.deleteMany({ _id: { $in: requests.map((request) => request._id) } });
+      photoPaths.push(...requests.map((request) => request.imagePath));
+    }
+  }
+
+  await Student.deleteOne({ _id: student._id });
+  await Promise.allSettled(ownedFilePaths(photoPaths).map((relativePath) => storageService.removeStored(relativePath)));
+
+  return { deleted: true, id: String(student._id), studentId: student.studentId, recordsRemoved };
 };
 
 const registerFace = async (ref, files) => {
@@ -445,7 +504,7 @@ module.exports = {
   getOne,
   create,
   update,
-  deactivate,
+  remove,
   registerFace,
   generateEmbedding,
   listEnrolledForCourse,

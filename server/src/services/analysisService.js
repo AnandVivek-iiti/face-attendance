@@ -6,15 +6,21 @@ const courseService = require('./courseService');
 const mlClient = require('./mlClient');
 const recordService = require('./recordService');
 const reconciliationService = require('./reconciliationService');
+const faceRescueService = require('./faceRescueService');
 const sessionService = require('./sessionService');
 const storageService = require('./storageService');
+const { createLimiter } = require('../utils/limiter');
 const studentService = require('./studentService');
+const Student = require('../models/Student');
 const {
   SESSION_STATUS,
   RECORD_STATUS,
   AUDIT_ACTIONS,
   LIMITS
 } = require('../config/constants');
+
+const MAX_PARALLEL_ANALYSES = 2;
+const limit = createLimiter(MAX_PARALLEL_ANALYSES);
 
 const ANALYZABLE_STATUSES = [SESSION_STATUS.DRAFT, SESSION_STATUS.FAILED, SESSION_STATUS.REVIEW];
 const UNUSABLE = 'unusable';
@@ -63,6 +69,35 @@ const groupFacesByImage = (faces, images) => {
     byImage[index].push(face);
   }
   return byImage;
+};
+
+const hasEmbedding = (student) => Array.isArray(student.faceEmbeddings) && student.faceEmbeddings.length > 0;
+
+// Registered students whose face vector was never generated can never match, so they would always show Absent.
+// Build the missing vectors from their registered photo before recognition runs (best effort, a few at a time).
+const backfillMissingEmbeddings = async (enrolled) => {
+  const missing = enrolled.filter((student) => !hasEmbedding(student) && student.registeredImage);
+  const CONCURRENCY = 4;
+  for (let i = 0; i < missing.length; i += CONCURRENCY) {
+    await Promise.all(
+      missing.slice(i, i + CONCURRENCY).map(async (student) => {
+        try {
+          const buffer = await storageService.readFile(student.registeredImage);
+          const filename = student.registeredImage.split('/').pop();
+          const mimeType = filename.endsWith('.png') ? 'image/png' : filename.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+          const result = await mlClient.generateEmbedding({ buffer, filename, mimeType });
+          await Student.updateOne(
+            { _id: student._id },
+            { $set: { faceEmbeddings: [result.embedding], embeddingModel: result.embeddingModel || null, hasFaceEmbedding: true } }
+          );
+          student.faceEmbeddings = [result.embedding];
+          student.embeddingModel = result.embeddingModel || null;
+        } catch (error) {
+          console.error(`Could not build face reference for ${student.studentId}: ${error.message}`);
+        }
+      })
+    );
+  }
 };
 
 const buildGallery = (enrolled) => {
@@ -126,6 +161,7 @@ const runAnalysis = async (session, user) => {
   const course = await courseService.getById(session.courseId);
   // The roster is the students already enrolled in this course's semester/section.
   const enrolled = await studentService.listEnrolledForCourse(course);
+  await backfillMissingEmbeddings(enrolled);
   const { gallery, embeddingModel, studentsWithoutEmbedding } = buildGallery(enrolled);
 
   const images = session.uploadedImages.map((image) => ({ image, document: image }));
@@ -147,6 +183,9 @@ const runAnalysis = async (session, user) => {
     // A first session has no roster yet; still run detection so the professor can build the list by assigning each detected face.
     allowEmptyStudents: true
   });
+
+  const rescued = faceRescueService.rescueUnmatchedFaces(response.faces, enrolled);
+  if (rescued) console.log(`Second-pass matching rescued ${rescued} face(s)`);
 
   const perImageQuality = response.imageQualities || [];
   const facesByImage = groupFacesByImage(response.faces, images);
@@ -221,25 +260,25 @@ const runAnalysis = async (session, user) => {
   });
   await session.save();
 
-  const entries = outcome.records
-    .filter((record) => !reviewedIds.has(String(record.student)))
-    .map((record) => ({
-      sessionId: session._id,
-      studentId: record.student,
-      actorType: 'ai',
-      action: auditActionFor(record.status),
-      after: { status: record.status, confidence: record.confidence, aiStudentId: record.aiStudentId }
-    }));
-  entries.push(
-    auditService.userEntry(user, {
-      sessionId: session._id,
-      action: AUDIT_ACTIONS.ANALYSIS_COMPLETED,
-      after: { images: usable.length, ...counts }
-    })
-  );
-  await auditService.recordMany(entries);
-
-  return sessionService.buildReview(session);
+  if (auditService.isEnabled()) {
+    const entries = outcome.records
+      .filter((record) => !reviewedIds.has(String(record.student)))
+      .map((record) => ({
+        sessionId: session._id,
+        studentId: record.student,
+        actorType: 'ai',
+        action: auditActionFor(record.status),
+        after: { status: record.status, confidence: record.confidence, aiStudentId: record.aiStudentId }
+      }));
+    entries.push(
+      auditService.userEntry(user, {
+        sessionId: session._id,
+        action: AUDIT_ACTIONS.ANALYSIS_COMPLETED,
+        after: { images: usable.length, ...counts }
+      })
+    );
+    await auditService.recordMany(entries);
+  }
 };
 
 const markFailure = async (sessionId, error, user) => {
@@ -255,13 +294,24 @@ const markFailure = async (sessionId, error, user) => {
     }
   );
   await auditService.record(
-    auditService.userEntry(user, {
-      sessionId,
-      action: AUDIT_ACTIONS.ANALYSIS_FAILED,
-      note: error.message
-    })
+    user
+      ? auditService.userEntry(user, { sessionId, action: AUDIT_ACTIONS.ANALYSIS_FAILED, note: error.message })
+      : { sessionId, actorType: 'system', action: AUDIT_ACTIONS.ANALYSIS_FAILED, note: error.message }
   );
 };
+
+const execute = (session, user) =>
+  limit(async () => {
+    try {
+      await runAnalysis(session, user);
+    } catch (error) {
+      try {
+        await markFailure(session._id, error, user);
+      } catch (cleanupError) {
+        console.error('Failed to record analysis failure', cleanupError);
+      }
+    }
+  });
 
 const analyzeSession = async (id, user) => {
   const session = await sessionService.getOwnedSession(id, user);
@@ -270,17 +320,23 @@ const analyzeSession = async (id, user) => {
     throw new AppError('Upload at least one classroom image before analysis', 400, { code: 'NO_IMAGES' });
   }
   const claimed = await claim(session, user);
+  const review = await sessionService.buildReview(claimed);
 
-  try {
-    return await runAnalysis(claimed, user);
-  } catch (error) {
-    try {
-      await markFailure(claimed._id, error, user);
-    } catch (cleanupError) {
-      console.error('Failed to record analysis failure', cleanupError);
-    }
-    throw error;
-  }
+  setImmediate(() => {
+    execute(claimed, user).catch((error) => console.error('Background analysis crashed', error));
+  });
+  return review;
 };
 
-module.exports = { analyzeSession };
+const recoverInterrupted = async () => {
+  const stuck = await AttendanceSession.find({ status: SESSION_STATUS.PROCESSING }).select('_id').lean();
+  for (const { _id } of stuck) {
+    const error = new AppError('Analysis was interrupted by a server restart. Run it again.', 503, {
+      code: 'ANALYSIS_INTERRUPTED'
+    });
+    await markFailure(_id, error, null);
+  }
+  return stuck.length;
+};
+
+module.exports = { analyzeSession, recoverInterrupted };

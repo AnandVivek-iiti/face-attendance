@@ -61,6 +61,7 @@ const start = async () => {
   storageService.ensureDirs();
   await storageService.cleanTemporary();
   await db.connect();
+  await require('./services/analysisService').recoverInterrupted();
 
   // Uploads abandoned mid-request would otherwise sit in /temporary until the next restart.
   const cleaner = setInterval(() => {

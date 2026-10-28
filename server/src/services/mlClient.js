@@ -73,9 +73,11 @@ const sleep = (ms) => (ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)
 // Transient failures worth retrying: a briefly unreachable host (a restarting tunnel, a cold start) or a 5xx.
 const RETRYABLE_CODES = new Set(['ML_UNAVAILABLE', 'ML_ERROR']);
 
-const request = async (path, form) => {
+const ANALYZE_TIMEOUT_MS = Math.max(env.mlTimeoutMs, 5 * 60 * 1000);
+
+const request = async (path, form, timeoutMs = env.mlTimeoutMs) => {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), env.mlTimeoutMs);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     let response;
     try {
@@ -113,10 +115,10 @@ const request = async (path, form) => {
   }
 };
 
-const post = async (path, form) => {
+const post = async (path, form, timeoutMs) => {
   for (let attempt = 1; ; attempt += 1) {
     try {
-      return await request(path, form);
+      return await request(path, form, timeoutMs);
     } catch (error) {
       if (attempt >= env.mlRetryAttempts || !RETRYABLE_CODES.has(error.code)) throw error;
       // Linear backoff: delay, 2*delay, ...
@@ -160,7 +162,7 @@ const analyzeClassroom = async ({ images, gallery, embeddingModel, includeEmbedd
   if (includeEmbeddings) form.append('includeEmbeddings', 'true');
   if (allowEmptyStudents) form.append('allowEmptyStudents', 'true');
 
-  const body = await post(ML_PATHS.ANALYZE, form);
+  const body = await post(ML_PATHS.ANALYZE, form, ANALYZE_TIMEOUT_MS);
   return parse(analysisSchema, body);
 };
 

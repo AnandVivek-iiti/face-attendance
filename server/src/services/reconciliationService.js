@@ -1,28 +1,24 @@
+const env = require('../config/env');
 const { RECORD_STATUS, AI_DECISION, ML_DECISION } = require('../config/constants');
 
-const DECISION_RANK = { [AI_DECISION.HIGH]: 2, [AI_DECISION.REVIEW]: 1 };
+// Similarity alone decides: a face matched to an enrolled student at or above the threshold is Present, whatever
+// confidence tier the ML service put it in. Students with no matching face are Absent. There is no review state.
+const isMatched = (face) =>
+  [ML_DECISION.HIGH, ML_DECISION.REVIEW, ML_DECISION.MEDIUM].includes(face.decision) &&
+  Boolean(face.studentId) &&
+  (face.similarity ?? 0) >= env.presentSimilarityThreshold;
 
-const normalizeDecision = (decision) => {
-  if (decision === ML_DECISION.HIGH) return AI_DECISION.HIGH;
-  if (decision === ML_DECISION.REVIEW || decision === ML_DECISION.MEDIUM) return AI_DECISION.REVIEW;
-  return null;
-};
-
-const toEvidence = (imageId, face, decision) => ({
+const toEvidence = (imageId, face) => ({
   imageId,
   faceId: face.faceId,
   bbox: face.bbox,
   similarity: face.similarity ?? null,
   faceQuality: face.faceQuality ?? null,
   detectionConfidence: face.detectionConfidence ?? null,
-  decision
+  decision: AI_DECISION.HIGH
 });
 
-const compareEvidence = (a, b) => {
-  const rankDiff = (DECISION_RANK[b.decision] || 0) - (DECISION_RANK[a.decision] || 0);
-  if (rankDiff !== 0) return rankDiff;
-  return (b.similarity ?? 0) - (a.similarity ?? 0);
-};
+const compareEvidence = (a, b) => (b.similarity ?? 0) - (a.similarity ?? 0);
 
 const collectDetections = (enrolledCodes, imageResults) => {
   const detections = new Map();
@@ -31,8 +27,8 @@ const collectDetections = (enrolledCodes, imageResults) => {
 
   for (const { imageId, response } of imageResults) {
     for (const face of response.faces) {
-      const decision = normalizeDecision(face.decision);
-      if (!decision) {
+      if (!isMatched(face)) {
+        // Not recognised: left for the professor to enroll / assign.
         unknownFaces.push({
           imageId,
           faceId: face.faceId,
@@ -51,7 +47,7 @@ const collectDetections = (enrolledCodes, imageResults) => {
         });
       } else {
         if (!detections.has(face.studentId)) detections.set(face.studentId, []);
-        detections.get(face.studentId).push(toEvidence(imageId, face, decision));
+        detections.get(face.studentId).push(toEvidence(imageId, face));
       }
     }
   }
@@ -76,8 +72,8 @@ const buildRecord = (student, evidence) => {
   return {
     student: student._id,
     studentCode: student.studentId,
-    status: best.decision === AI_DECISION.HIGH ? RECORD_STATUS.PRESENT : RECORD_STATUS.NEEDS_REVIEW,
-    decision: best.decision,
+    status: RECORD_STATUS.PRESENT,
+    decision: AI_DECISION.HIGH,
     confidence: best.similarity,
     faceQuality: best.faceQuality,
     aiStudentId: student.studentId,

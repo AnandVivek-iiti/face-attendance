@@ -45,6 +45,11 @@ const finalizeSession = async (id, user) => {
     throw new AppError('Attendance session is already finalized', 409, { code: 'SESSION_FINALIZED' });
   }
 
+  await AttendanceSession.updateOne(
+    { _id: session._id, 'analysis.faces.0': { $exists: true } },
+    { $unset: { 'analysis.faces.$[].embedding': '' } }
+  ).catch((error) => console.error('Could not trim stored face embeddings', error.message));
+
   await auditService.record(
     auditService.userEntry(user, {
       sessionId: session._id,

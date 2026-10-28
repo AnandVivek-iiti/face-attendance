@@ -22,6 +22,7 @@ import { useReviewState } from '../hooks/useReviewState';
 import { useSession } from '../hooks/useSession';
 import {
   analyzeSession,
+  waitForAnalysis,
   assignFace,
   assignFaces,
   deleteSession,
@@ -125,9 +126,11 @@ export default function ReviewPage() {
     try {
       await analyzeSession(sessionId);
       await reload({ silent: true });
+      await waitForAnalysis(sessionId);
     } catch (err) {
       toast.error(getErrorMessage(err));
     } finally {
+      await reload({ silent: true });
       setAnalyzing(false);
     }
   };

@@ -18,7 +18,38 @@ export async function uploadSessionImages(sessionId, files, onProgress) {
 }
 
 export async function analyzeSession(sessionId) {
-  await http.post(`/api/attendance/sessions/${sessionId}/analyze`, {}, { timeout: 300000 });
+  await http.post(`/api/attendance/sessions/${sessionId}/analyze`, {});
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function waitForAnalysis(sessionId, { intervalMs = 2500, timeoutMs = 15 * 60 * 1000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  let failures = 0;
+  for (;;) {
+    try {
+      const payload = unwrap(await http.get(`/api/attendance/sessions/${sessionId}`));
+      failures = 0;
+      const session = payload.session ?? payload;
+      if (session.status !== 'processing') {
+        if (session.failure?.code) {
+          throw Object.assign(new Error(session.failure.message), {
+            response: { data: { code: session.failure.code, message: session.failure.message } },
+          });
+        }
+        return;
+      }
+    } catch (error) {
+      const status = error.response?.status;
+      const retryable = !error.response?.data?.code && (!status || status >= 500);
+      failures += 1;
+      if (!retryable || failures >= 5) throw error;
+    }
+    if (Date.now() > deadline) {
+      throw new Error('Analysis is taking longer than expected. Open the session later to see the result.');
+    }
+    await sleep(intervalMs);
+  }
 }
 
 export async function getSession(sessionId) {

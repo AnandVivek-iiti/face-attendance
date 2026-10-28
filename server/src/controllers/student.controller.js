@@ -20,7 +20,7 @@ const update = asyncHandler(async (req, res) =>
 );
 
 const remove = asyncHandler(async (req, res) =>
-  success(res, await studentService.deactivate(req.params.id))
+  success(res, await studentService.remove(req.params.id))
 );
 
 const registerFace = asyncHandler(async (req, res) =>

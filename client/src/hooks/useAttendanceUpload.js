@@ -4,6 +4,7 @@ import {
   createSession,
   getSession,
   uploadSessionImages,
+  waitForAnalysis,
 } from '../services/attendanceService';
 import { getErrorMessage } from '../utils/errors';
 
@@ -38,6 +39,7 @@ export function useAttendanceUpload() {
       stage = 'analyzing';
       setState((prev) => ({ ...prev, stage, uploadProgress: 1 }));
       await analyzeSession(memo.sessionId);
+      await waitForAnalysis(memo.sessionId);
       const session = await getSession(memo.sessionId);
       setState((prev) => ({ ...prev, stage: 'done', session }));
       return session;

@@ -29,7 +29,9 @@ const addImages = asyncHandler(async (req, res) =>
 );
 
 const analyze = asyncHandler(async (req, res) =>
-  success(res, await analysisService.analyzeSession(req.params.id, req.user)),
+  success(res, await analysisService.analyzeSession(req.params.id, req.user), {
+    status: 202,
+  }),
 );
 
 const getSession = asyncHandler(async (req, res) =>

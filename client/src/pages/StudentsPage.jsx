@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Plus, Sparkles, Users } from 'lucide-react';
+import { AlertTriangle, Plus, Sparkles, Trash2, Users } from 'lucide-react';
 import Badge from '../components/ui/Badge';
 import Button from '../components/ui/Button';
 import Card from '../components/ui/Card';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
 import { SearchInput, Select, TextInput } from '../components/ui/Field';
@@ -13,7 +14,7 @@ import Spinner from '../components/ui/Spinner';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { useAsync } from '../hooks/useAsync';
-import { createStudent, getStudents } from '../services/studentService';
+import { createStudent, deleteStudent, getStudents } from '../services/studentService';
 import { ROLES, STUDENT_ID_PATTERN } from '../utils/constants';
 import { getErrorMessage } from '../utils/errors';
 
@@ -86,6 +87,23 @@ export default function StudentsPage() {
   const { data, loading, error, reload } = useAsync(getStudents);
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
+  const toast = useToast();
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteStudent(pendingDelete.id);
+      toast.success('Student deleted.');
+      setPendingDelete(null);
+      reload();
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const rows = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -151,6 +169,7 @@ export default function StudentsPage() {
                   <th scope="col" className="px-4 py-2">Semester</th>
                   <th scope="col" className="px-4 py-2">Section</th>
                   <th scope="col" className="px-4 py-2">Face photographs</th>
+                  {isAdmin && <th scope="col" className="px-4 py-2"><span className="sr-only">Actions</span></th>}
                 </tr>
               </thead>
               <tbody className="stagger">
@@ -196,6 +215,13 @@ export default function StudentsPage() {
                         <Badge tone="warn" icon={AlertTriangle}>None, cannot be recognized</Badge>
                       )}
                     </td>
+                    {isAdmin && (
+                      <td className="px-4 py-3 text-right">
+                        <Button size="sm" variant="danger" icon={Trash2} onClick={() => setPendingDelete(student)} aria-label={`Delete ${student.name}`}>
+                          Delete
+                        </Button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -203,6 +229,19 @@ export default function StudentsPage() {
           </div>
         )}
       </Card>
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="Delete student"
+        confirmLabel="Delete student"
+        tone="danger"
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      >
+        <p>
+          Permanently delete <strong>{pendingDelete?.name}</strong>? Their face data, photographs and attendance records are removed and this cannot be undone.
+        </p>
+      </ConfirmDialog>
       <NewStudentDialog
         open={creating}
         onClose={() => setCreating(false)}

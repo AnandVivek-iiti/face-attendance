@@ -234,7 +234,7 @@ export default function StudentDetailPage() {
         onCancel={() => setConfirmDelete(false)}
       >
         <p>
-          Delete <strong>{student.name}</strong>? Their face photographs and attendance records may also be removed.
+          Permanently delete <strong>{student.name}</strong>? Their face data, photographs and attendance records are removed and this cannot be undone.
         </p>
       </ConfirmDialog>
     </>
