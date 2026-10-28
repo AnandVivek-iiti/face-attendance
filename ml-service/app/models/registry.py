@@ -29,7 +29,7 @@ def load_face_analysis(settings: Settings, providers: list[str], use_cuda: bool)
     )
     analysis.prepare(
         ctx_id=0 if use_cuda else -1,
-        det_thresh=settings.detection_threshold,
+        det_thresh=min(settings.detection_threshold, settings.detection_low_threshold),
         det_size=(settings.detection_size, settings.detection_size),
     )
     return analysis
