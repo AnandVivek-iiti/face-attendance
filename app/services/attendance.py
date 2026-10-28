@@ -44,7 +44,12 @@ class Observation:
 class AttendanceService:
     def __init__(self, registry: ModelRegistry, settings: Settings):
         self._settings = settings
-        self._detection = DetectionService(registry.detector)
+        self._detection = DetectionService(
+            registry.detector,
+            tiling=settings.detection_tiling,
+            tile_side=settings.detection_tile_side,
+            overlap=settings.detection_tile_overlap,
+        )
         self._recognition = RecognitionService(registry.recognizer, settings)
         self._crops = FaceCropWriter(settings.save_face_crops, settings.crop_path)
         self._gate = threading.BoundedSemaphore(settings.max_concurrent_inferences)
@@ -84,7 +89,7 @@ class AttendanceService:
             face_id = f"img{index + 1}_face_{position:03d}" if multi else f"face_{position:03d}"
             records.append((face_id, face, aligned, quality))
 
-        eligible = [r for r in records if r[3].tier != "reject"]
+        eligible = [r for r in records if r[3].side >= self._settings.min_embed_face_side]
         embeddings = self._recognition.embed([r[2] for r in eligible])
         matches = self._recognition.match(embeddings, gallery)
         match_by_id = {r[0]: m for r, m in zip(eligible, matches)}
@@ -94,7 +99,7 @@ class AttendanceService:
         for face_id, face, _, quality in records:
             match = match_by_id.get(face_id)
             embedding = embedding_by_id.get(face_id)
-            if match is None or quality.tier == "reject":
+            if match is None:
                 observations.append(
                     self._observation(face_id, index, face, quality, None, 0.0, UNKNOWN, width, height, embedding)
                 )

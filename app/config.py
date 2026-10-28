@@ -15,11 +15,21 @@ class Settings(BaseSettings):
     detection_min_size: int = 640
     warmup: bool = True
     detection_threshold: float = 0.5
+    # Faces scoring between this and DETECTION_THRESHOLD are still detected, so small faces in wide classroom photos are not lost.
+    detection_low_threshold: float = 0.3
+    # Run extra detection passes over overlapping tiles of large photos (finds small, far-away faces).
+    detection_tiling: bool = True
+    detection_tile_side: int = 1600
+    detection_tile_overlap: float = 0.25
     max_concurrent_inferences: int = 1
 
     high_confidence_threshold: float = 0.55
     review_threshold: float = 0.40
     min_match_margin: float = 0.05
+    # Any matched face with similarity >= this is marked Present with no review, whatever its quality or margin.
+    auto_present_threshold: float = 0.30
+    # Faces smaller than this many pixels are not embedded at all (below it, recognition is meaningless).
+    min_embed_face_side: int = 12
     quality_bypass_similarity: float = 1.01
     quality_bypass_margin: float = 0.10
     gallery_pooling: str = "max"

@@ -52,6 +52,10 @@ class RecognitionService:
             matches.append(Match(gallery.student_ids[student_index], similarity, margin))
         return matches
 
+    @property
+    def _match_floor(self) -> float:
+        return min(self._settings.review_threshold, self._settings.auto_present_threshold)
+
     def _assign_unique(self, scores: np.ndarray) -> dict[int, int]:
         order = np.argsort(-scores, axis=None)
         faces_taken: set[int] = set()
@@ -59,7 +63,7 @@ class RecognitionService:
         assigned: dict[int, int] = {}
         for flat in order:
             face_index, student_index = divmod(int(flat), scores.shape[1])
-            if scores[face_index, student_index] < self._settings.review_threshold:
+            if scores[face_index, student_index] < self._match_floor:
                 break
             if face_index in faces_taken or student_index in students_taken:
                 continue
@@ -69,18 +73,12 @@ class RecognitionService:
         return assigned
 
     def decide(self, match: Match, quality_tier: str) -> str:
+        """Similarity alone decides. quality_tier and margin are kept in the signature but no longer block Present."""
         settings = self._settings
-        if match.student_id is None or match.similarity < settings.review_threshold:
+        if match.student_id is None:
             return UNKNOWN
-        if (
-            match.similarity >= settings.quality_bypass_similarity
-            and match.margin >= settings.quality_bypass_margin
-        ):
+        if match.similarity >= settings.auto_present_threshold:
             return HIGH
-        if (
-            quality_tier == "ok"
-            and match.similarity >= settings.high_confidence_threshold
-            and match.margin >= settings.min_match_margin
-        ):
-            return HIGH
-        return REVIEW
+        if match.similarity >= settings.review_threshold:
+            return REVIEW
+        return UNKNOWN
