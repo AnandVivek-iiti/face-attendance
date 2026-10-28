@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     detection_tile_side: int = 1600
     detection_tile_overlap: float = 0.25
     max_concurrent_inferences: int = 1
+    inference_queue_timeout: float = 120.0
 
     high_confidence_threshold: float = 0.55
     review_threshold: float = 0.40

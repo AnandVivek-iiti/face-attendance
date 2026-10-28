@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from app.config import Settings
+from app.errors import AppError
 from app.models.registry import ModelRegistry
 from app.services.detection import DetectionService, clamp_bbox
 from app.services.quality_check import FaceQuality, ImageQuality, assess_face, assess_image
@@ -65,11 +66,15 @@ class AttendanceService:
         gallery = build_gallery(students)
         multi = len(images) > 1
         observations: list[Observation] = []
-        with self._gate:
+        if not self._gate.acquire(timeout=self._settings.inference_queue_timeout):
+            raise AppError("ML_BUSY", "The recognition service is busy. Try again shortly.", 503)
+        try:
             for index in usable:
                 observations.extend(
                     self._analyze_image(images[index], index, multi, gallery, request_id, include_embeddings)
                 )
+        finally:
+            self._gate.release()
 
         for observation in observations:
             self._save_crop(request_id, images[observation.image_index], observation)
