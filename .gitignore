@@ -6,3 +6,10 @@ __pycache__/
 storage/face-crops/*
 !storage/face-crops/.gitkeep
 evaluation-output/
+
+eval/photos/
+eval/enrol_photos/
+
+# Python cache
+__pycache__/
+*.py[cod]
