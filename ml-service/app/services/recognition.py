@@ -54,7 +54,7 @@ class RecognitionService:
 
     @property
     def _match_floor(self) -> float:
-        return min(self._settings.review_threshold, self._settings.auto_present_threshold)
+        return self._settings.review_threshold
 
     def _assign_unique(self, scores: np.ndarray) -> dict[int, int]:
         order = np.argsort(-scores, axis=None)
@@ -73,12 +73,13 @@ class RecognitionService:
         return assigned
 
     def decide(self, match: Match, quality_tier: str) -> str:
-        """Similarity alone decides. quality_tier and margin are kept in the signature but no longer block Present."""
-        settings = self._settings
-        if match.student_id is None:
+        """README decision rules: reject tier never claims a student; HIGH needs
+        similarity, clean quality tier and margin; otherwise REVIEW above the floor."""
+        s = self._settings
+        if match.student_id is None or quality_tier == "reject" or match.similarity < s.review_threshold:
             return UNKNOWN
-        if match.similarity >= settings.auto_present_threshold:
+        clean = quality_tier == "ok" and match.margin >= s.min_match_margin
+        bypass = match.similarity >= s.quality_bypass_similarity and match.margin >= s.quality_bypass_margin
+        if match.similarity >= s.high_confidence_threshold and (clean or bypass):
             return HIGH
-        if match.similarity >= settings.review_threshold:
-            return REVIEW
-        return UNKNOWN
+        return REVIEW

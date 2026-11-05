@@ -36,11 +36,11 @@ class ReferenceService:
         if image_quality.status == "unusable" and image_quality.reason != "blur":
             raise AppError("IMAGE_UNUSABLE", image_quality.message, 422)
 
-        faces = self._detection.detect(image)
+        faces = self._confident(self._detection.detect(image))
         working = image
         if not faces and settings.reference_pad_fallback:
             working = pad_border(image, PAD_RATIO)
-            faces = self._detection.detect(working)
+            faces = self._confident(self._detection.detect(working))
         if not faces:
             raise AppError("NO_FACE_DETECTED", "No face was detected in the reference image.", 422)
 
@@ -67,6 +67,9 @@ class ReferenceService:
             detection_confidence=round(face.score, 3),
             bbox=bbox,
         )
+
+    def _confident(self, faces):
+        return [f for f in faces if f.score >= self._settings.detection_threshold]
 
     def _validate_reference_quality(self, quality) -> None:
         settings = self._settings

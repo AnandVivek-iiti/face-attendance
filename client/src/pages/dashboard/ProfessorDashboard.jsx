@@ -1,3 +1,4 @@
+
 import { Link } from 'react-router-dom';
 import { BookOpen, Camera, CalendarCheck, ClipboardList, History } from 'lucide-react';
 import Button from '../../components/ui/Button';
@@ -19,6 +20,7 @@ export default function ProfessorDashboard({ user }) {
 
   const loading = courses.loading || history.loading;
   const error = courses.error || history.error;
+
   const reload = () => {
     courses.reload();
     history.reload();
@@ -38,7 +40,8 @@ export default function ProfessorDashboard({ user }) {
     />
   );
 
-  if (loading && !courses.data && !history.data) {
+  // Wait until BOTH requests have completed.
+  if (loading) {
     return (
       <>
         {header}
@@ -47,7 +50,7 @@ export default function ProfessorDashboard({ user }) {
     );
   }
 
-  if (error && (!courses.data || !history.data)) {
+  if (error) {
     return (
       <>
         {header}
@@ -56,20 +59,39 @@ export default function ProfessorDashboard({ user }) {
     );
   }
 
-  const sessions = [...(history.data ?? [])].sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  // Defensively normalize API data.
+  const courseList = Array.isArray(courses.data) ? courses.data : [];
+  const sessions = (Array.isArray(history.data) ? history.data : [])
+    .sort((a, b) => String(b.date).localeCompare(String(a.date)));
+
   const today = sessions.filter((session) => session.date === todayIso());
   const pending = sessions.filter((session) => session.status !== 'finalized');
   const recent = sessions.slice(0, 5);
-  const latest = sessions.find((session) => session.status === 'finalized' && session.total);
+  const latest = sessions.find(
+    (session) => session.status === 'finalized' && session.total
+  );
 
   return (
     <>
       {header}
 
       <div className="stagger grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={BookOpen} label="Total Courses" value={(courses.data ?? 0).length} />
-        <StatCard icon={CalendarCheck} label="Today's Sessions" value={today.length} />
-        <StatCard icon={ClipboardList} label="Pending Reviews" value={pending.length} hint="Sessions not yet finalized" />
+        <StatCard
+          icon={BookOpen}
+          label="Total Courses"
+          value={courseList.length}
+        />
+        <StatCard
+          icon={CalendarCheck}
+          label="Today's Sessions"
+          value={today.length}
+        />
+        <StatCard
+          icon={ClipboardList}
+          label="Pending Reviews"
+          value={pending.length}
+          hint="Sessions not yet finalized"
+        />
         <StatCard
           icon={History}
           label="Recent Attendance"
@@ -84,11 +106,7 @@ export default function ProfessorDashboard({ user }) {
             sessions={today}
             emptyTitle="No sessions today"
             emptyDescription="Upload a classroom photograph to start today's attendance."
-            emptyAction={
-              <Button as={Link} to="/attendance/new" icon={Camera}>
-                Take Attendance
-              </Button>
-            }
+            emptyAction={takeAttendance}
           />
         </Card>
 
@@ -129,19 +147,26 @@ export default function ProfessorDashboard({ user }) {
             </Link>
           }
         >
-          {courses.data.length === 0 ? (
+          {courseList.length === 0 ? (
             <EmptyState title="No courses yet" description="Courses assigned to you appear here." />
           ) : (
             <ul className="stagger divide-y divide-line">
-              {courses.data.slice(0, 6).map((course) => (
+              {courseList.slice(0, 6).map((course) => (
                 <li key={course.id} className="flex items-center justify-between gap-3 px-4 py-3">
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-semibold text-ink">
                       {course.code} {course.name}
                     </span>
-                    <span className="block text-xs text-muted">{course.studentCount} enrolled</span>
+                    <span className="block text-xs text-muted">
+                      {course.studentCount} enrolled
+                    </span>
                   </span>
-                  <Button as={Link} to={`/attendance/new?course=${course.id}`} size="sm" icon={Camera}>
+                  <Button
+                    as={Link}
+                    to={`/attendance/new?course=${course.id}`}
+                    size="sm"
+                    icon={Camera}
+                  >
                     Take attendance
                   </Button>
                 </li>

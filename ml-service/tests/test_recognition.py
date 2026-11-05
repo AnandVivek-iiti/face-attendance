@@ -14,22 +14,21 @@ def service(**overrides):
 def vec(*values):
     return l2_normalize(np.array([values], dtype=np.float32))[0]
 
-
 def test_decision_thresholds():
     s = service()
     assert s.decide(Match("A", 0.8, 0.5), "ok") == HIGH
-    assert s.decide(Match("A", 0.5, 0.5), "ok") == HIGH
-    assert s.decide(Match("A", 0.3, 0.5), "ok") == HIGH
+    assert s.decide(Match("A", 0.5, 0.5), "ok") == REVIEW
+    assert s.decide(Match("A", 0.3, 0.5), "ok") == REVIEW
     assert s.decide(Match("A", 0.25, 0.5), "ok") == REVIEW
     assert s.decide(Match("A", 0.1, 0.5), "ok") == UNKNOWN
     assert s.decide(Match(None, 0.9, 0.0), "ok") == UNKNOWN
 
 
-def test_thirty_percent_is_present_regardless_of_quality_or_margin():
+def test_low_quality_or_weak_margin_cannot_be_high():
     s = service()
-    assert s.decide(Match("A", 0.31, 0.0), "low") == HIGH
-    assert s.decide(Match("A", 0.31, 0.0), "reject") == HIGH
-    assert s.decide(Match("A", 0.95, 0.01), "ok") == HIGH
+    assert s.decide(Match("A", 0.31, 0.0), "low") != HIGH
+    assert s.decide(Match("A", 0.31, 0.0), "reject") != HIGH
+    assert s.decide(Match("A", 0.95, 0.01), "ok") != HIGH
 
 
 def test_two_faces_cannot_claim_the_same_student():
