@@ -27,8 +27,6 @@ class Settings(BaseSettings):
     high_confidence_threshold: float = 0.55
     review_threshold: float = 0.40
     min_match_margin: float = 0.05
-    # Any matched face with similarity >= this is marked Present with no review, whatever its quality or margin.
-    auto_present_threshold: float = 0.30
     # Faces smaller than this many pixels are not embedded at all (below it, recognition is meaningless).
     min_embed_face_side: int = 12
     quality_bypass_similarity: float = 1.01

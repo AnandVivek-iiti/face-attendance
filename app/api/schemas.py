@@ -28,6 +28,7 @@ class SummaryOut(BaseModel):
     highConfidence: int
     needsReview: int
     unknown: int
+    duplicateObservations: int = 0
 
 
 class AnalyzeResponse(BaseModel):

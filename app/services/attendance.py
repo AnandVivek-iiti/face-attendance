@@ -81,11 +81,16 @@ class AttendanceService:
         faces = self._deduplicate(observations)
         logger.info("request=%s images=%d usable=%d faces=%d returned=%d",
                     request_id, len(images), len(usable), len(observations), len(faces))
-        return self._response(image_quality, faces, include_embeddings, qualities)
+        return self._response(image_quality, faces, include_embeddings, qualities,
+                              duplicates=len(observations) - len(faces))
 
     def _analyze_image(self, image: np.ndarray, index: int, multi: bool, gallery, request_id: str,
                        include_embeddings: bool = False) -> list[Observation]:
-        raw_faces = self._detection.detect(image)
+        detected = self._detection.detect(image)
+        raw_faces = [f for f in detected if f.score >= self._settings.detection_threshold]
+        if len(raw_faces) != len(detected):
+            logger.info("request=%s image=%d dropped %d detections below DETECTION_THRESHOLD=%.2f",
+                        request_id, index + 1, len(detected) - len(raw_faces), self._settings.detection_threshold)
         height, width = image.shape[:2]
         records = []
         for position, face in enumerate(raw_faces, start=1):
@@ -94,7 +99,8 @@ class AttendanceService:
             face_id = f"img{index + 1}_face_{position:03d}" if multi else f"face_{position:03d}"
             records.append((face_id, face, aligned, quality))
 
-        eligible = [r for r in records if r[3].side >= self._settings.min_embed_face_side]
+        eligible = [r for r in records
+                    if r[3].side >= self._settings.min_embed_face_side and r[3].tier != "reject"]
         embeddings = self._recognition.embed([r[2] for r in eligible])
         matches = self._recognition.match(embeddings, gallery)
         match_by_id = {r[0]: m for r, m in zip(eligible, matches)}
@@ -169,7 +175,7 @@ class AttendanceService:
 
     @staticmethod
     def _response(image_quality: ImageQuality, faces: list[Observation], include_embeddings: bool = False,
-                  qualities: list[ImageQuality] | None = None) -> dict:
+                  qualities: list[ImageQuality] | None = None, duplicates: int = 0) -> dict:
         counts = {HIGH: 0, REVIEW: 0, UNKNOWN: 0}
         for face in faces:
             counts[face.decision] += 1
@@ -211,5 +217,6 @@ class AttendanceService:
                 "highConfidence": counts[HIGH],
                 "needsReview": counts[REVIEW],
                 "unknown": counts[UNKNOWN],
+                "duplicateObservations": duplicates,
             },
         }
