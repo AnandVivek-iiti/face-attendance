@@ -37,7 +37,8 @@ const ML_DECISION = Object.freeze({
 const ML_PATHS = Object.freeze({
   EMBEDDING: '/generate-embedding',
   ANALYZE: '/analyze-classroom',
-  CROP: '/crop-face'
+  CROP: '/crop-face',
+  HEALTH: '/health'
 });
 
 const IMAGE_MIME_TYPES = Object.freeze({

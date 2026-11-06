@@ -110,7 +110,8 @@ export default function ReviewPage() {
     setFinalizing(true);
     try {
       await flush();
-      await finalizeSession(sessionId);
+      // The dialog has already told the professor how many faces are unmatched; confirming it is the acknowledgement.
+      await finalizeSession(sessionId, { acknowledgeUnresolved: true });
       await reload({ silent: true });
       setDialog(null);
       toast.success('Attendance finalized.');

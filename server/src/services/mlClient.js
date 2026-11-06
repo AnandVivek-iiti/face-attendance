@@ -19,6 +19,8 @@ const faceSchema = z
     studentId: z.string().min(1).nullable().optional(),
     similarity: z.number().nullable().optional(),
     decision: z.enum(Object.values(ML_DECISION)),
+    qualityTier: z.string().nullable().optional(),
+    clusterId: z.string().nullable().optional(),
     embedding: z.array(z.number().finite()).optional()
   })
   .superRefine((face, ctx) => {
@@ -49,11 +51,18 @@ const cropResponseSchema = z.object({
 
 const embeddingSchema = z.object({
   embedding: z.array(z.number().finite()).min(1),
-  embeddingModel: z.string().min(1).optional(),
-  embeddingDim: z.number().int().positive().optional(),
+  embeddingModel: z.string().min(1),
+  embeddingDim: z.number().int().positive(),
   faceQuality: z.number().nullable().optional(),
   detectionConfidence: z.number().nullable().optional(),
   bbox: z.array(z.number()).optional()
+});
+
+const healthSchema = z.object({
+  status: z.literal('ok'),
+  embeddingModel: z.string().min(1),
+  embeddingDim: z.number().int().positive(),
+  providers: z.array(z.string()).default([])
 });
 
 const invalidResponse = () => new AppError('Invalid ML service response', 502, { code: 'ML_INVALID_RESPONSE' });
@@ -75,15 +84,15 @@ const RETRYABLE_CODES = new Set(['ML_UNAVAILABLE', 'ML_ERROR']);
 
 const ANALYZE_TIMEOUT_MS = Math.max(env.mlTimeoutMs, 5 * 60 * 1000);
 
-const request = async (path, form, timeoutMs = env.mlTimeoutMs) => {
+const request = async (path, form, timeoutMs = env.mlTimeoutMs, method = 'POST') => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     let response;
     try {
       response = await fetch(`${env.mlServiceUrl}${path}`, {
-        method: 'POST',
-        body: form,
+        method,
+        ...(method === 'GET' ? {} : { body: form }),
         headers: env.mlApiKey ? { 'X-API-Key': env.mlApiKey } : undefined,
         signal: controller.signal
       });
@@ -129,6 +138,11 @@ const post = async (path, form, timeoutMs) => {
 
 const imageBlob = (buffer, filename, mimeType) => new Blob([buffer], { type: mimeType });
 
+const getHealth = async () => {
+  const body = await request(ML_PATHS.HEALTH, null, env.mlTimeoutMs, 'GET');
+  return parse(healthSchema, body);
+};
+
 const parse = (schema, body) => {
   const result = schema.safeParse(body);
   if (!result.success) throw invalidResponse();
@@ -166,4 +180,4 @@ const analyzeClassroom = async ({ images, gallery, embeddingModel, includeEmbedd
   return parse(analysisSchema, body);
 };
 
-module.exports = { generateEmbedding, analyzeClassroom, cropFaces };
+module.exports = { getHealth, generateEmbedding, analyzeClassroom, cropFaces };

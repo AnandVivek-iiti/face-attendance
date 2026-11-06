@@ -77,7 +77,9 @@ const exportAll = asyncHandler(async (req, res) =>
 const finalize = asyncHandler(async (req, res) =>
   success(
     res,
-    await finalizationService.finalizeSession(req.params.id, req.user),
+    await finalizationService.finalizeSession(req.params.id, req.user, {
+      acknowledgeUnresolved: req.body && req.body.acknowledgeUnresolved === true
+    }),
   ),
 );
 

@@ -8,6 +8,8 @@ test.afterEach(() => {
   global.fetch = originalFetch;
 });
 
+const healthBody = { status: 'ok', embeddingModel: 'buffalo_l', embeddingDim: 512, providers: ['CPUExecutionProvider'] };
+
 const input = {
   images: [{ buffer: Buffer.from([1, 2, 3]), filename: "a.jpg", mimeType: "image/jpeg" }],
   gallery: [],
@@ -40,6 +42,15 @@ const validBody = {
   ],
   summary: { detectedFaces: 1, highConfidence: 1, needsReview: 0, unknown: 0 },
 };
+
+test('reads the active model and embedding dimension from ML health', async () => {
+  let method;
+  global.fetch = async (_url, options) => { method = options.method; return jsonResponse(healthBody); };
+  const result = await mlClient.getHealth();
+  assert.equal(method, 'GET');
+  assert.equal(result.embeddingModel, 'buffalo_l');
+  assert.equal(result.embeddingDim, 512);
+});
 
 test("accepts the documented ML response", async () => {
   global.fetch = async () => jsonResponse(validBody);
@@ -123,7 +134,7 @@ test("maps ML 5xx to 502 and ML 4xx to 422 with the ML message", async () => {
 
 test("validates embedding payload", async () => {
   global.fetch = async () =>
-    jsonResponse({ embedding: [0.1, 0.2], faceQuality: 0.9 });
+    jsonResponse({ embedding: [0.1, 0.2], embeddingModel: 'buffalo_l', embeddingDim: 2, faceQuality: 0.9 });
   const result = await mlClient.generateEmbedding(embeddingInput);
   assert.equal(result.embedding.length, 2);
   global.fetch = async () => jsonResponse({ embedding: [] });

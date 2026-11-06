@@ -20,7 +20,7 @@ const result = (faces) => ({ imageQuality: { status: 'good' }, faces });
 
 const byCode = (outcome, code) => outcome.records.find((record) => record.studentCode === code);
 
-test('high confidence is present, medium needs review, undetected is absent', () => {
+test('high confidence is present, review decisions need review, and undetected is absent', () => {
   const outcome = reconcile({
     students,
     imageResults: [
@@ -32,6 +32,17 @@ test('high confidence is present, medium needs review, undetected is absent', ()
   assert.equal(byCode(outcome, 'C').status, 'absent');
   assert.equal(byCode(outcome, 'C').decision, 'not_detected');
   assert.deepEqual(outcome.counts, { totalStudents: 4, presentCount: 1, absentCount: 2, needsReviewCount: 1 });
+});
+
+test('similarity alone cannot promote a review decision to Present', () => {
+  const outcome = reconcile({
+    students,
+    imageResults: [{ imageId: 'img1', response: result([face('f1', 'A', 0.99, 'needs_review')]) }]
+  });
+  assert.equal(byCode(outcome, 'A').status, 'needs_review');
+  assert.equal(byCode(outcome, 'A').decision, 'needs_review');
+  assert.equal(outcome.counts.presentCount, 0);
+  assert.equal(outcome.counts.needsReviewCount, 1);
 });
 
 test('same student across photos yields one record with all evidence', () => {

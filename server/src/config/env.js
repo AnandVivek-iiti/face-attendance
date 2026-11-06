@@ -66,14 +66,6 @@ if (!isProduction) {
   }
 }
 
-const ratio = (name, fallback) => {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') return fallback;
-  const value = Number.parseFloat(raw);
-  if (!Number.isFinite(value) || value < 0 || value > 1) throw new Error(`${name} must be a number between 0 and 1`);
-  return value;
-};
-
 const port = positiveInt('PORT', 5000);
 const smtpPort = positiveInt('SMTP_PORT', 587);
 
@@ -92,10 +84,6 @@ module.exports = Object.freeze({
   // Optional: only needed when the ML service has API_KEY set.
   mlApiKey: process.env.ML_API_KEY || '',
   mlTimeoutMs: positiveInt('ML_TIMEOUT_MS', 60000),
-  // Any face matched to an enrolled student with similarity >= this is marked Present automatically (no review step).
-  presentSimilarityThreshold: ratio('PRESENT_SIMILARITY_THRESHOLD', 0.3),
-  // Second pass for faces the ML service left unmatched: pair them with still-absent students at or above this similarity.
-  rescueSimilarityThreshold: ratio('RESCUE_SIMILARITY_THRESHOLD', 0.2),
   // Total tries for a transient ML failure (unreachable host / 5xx), including the first.
   mlRetryAttempts: positiveInt('ML_RETRY_ATTEMPTS', 3),
   // Base backoff between retries in ms (linear: delay, 2*delay, ...).

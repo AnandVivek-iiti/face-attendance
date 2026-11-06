@@ -7,6 +7,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const env = require('../config/env');
 const AppError = require('../utils/AppError');
 const fileAccessService = require('../services/fileAccessService');
+const storageService = require('../services/storageService');
 const { ROLES } = require('../config/constants');
 
 const router = express.Router();
@@ -22,6 +23,35 @@ const tokenFromQuery = (req, _res, next) => {
   }
   next();
 };
+
+// GridFS-backed registered student photos. Keep this explicit route before the legacy path route.
+router.get(
+  '/registered-face/:studentId',
+  tokenFromQuery,
+  authenticate,
+  authorizeRole(ROLES.PROFESSOR, ROLES.ADMIN),
+  asyncHandler(async (req, res) => {
+    if (!(await fileAccessService.canAccessRegisteredFace(req.user, req.params.studentId))) throw notFound();
+    const Student = require('../models/Student');
+    const filter = /^[a-f\d]{24}$/i.test(String(req.params.studentId))
+      ? { _id: req.params.studentId }
+      : { studentId: String(req.params.studentId) };
+    const student = await Student.findOne(filter).select('registeredImageFileId').lean();
+    if (!student?.registeredImageFileId) throw notFound();
+    let image;
+    try {
+      image = await storageService.readRegisteredFace(student.registeredImageFileId);
+    } catch {
+      throw notFound();
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(image.mimeType)) throw notFound();
+    res.set('Content-Type', image.mimeType);
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Cache-Control', 'private, no-store');
+    res.set('Content-Disposition', 'inline');
+    res.send(image.buffer);
+  })
+);
 
 // A regular expression (rather than '/*') behaves the same on Express 4 and 5, where the wildcard syntax is different and '/*' is rejected at...
 router.get(

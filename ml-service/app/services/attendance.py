@@ -9,7 +9,9 @@ from app.errors import AppError
 from app.models.registry import ModelRegistry
 from app.services.detection import DetectionService, clamp_bbox
 from app.services.quality_check import FaceQuality, ImageQuality, assess_face, assess_image
-from app.services.recognition import HIGH, REVIEW, UNKNOWN, RecognitionService
+from app.services.recognition import (
+    HIGH, POLICY_VERSION, REVIEW, UNKNOWN, Candidate, Decision, RecognitionService,
+)
 try:
     from app.utils.debug_crops import FaceCropWriter
 except ModuleNotFoundError:  # optional debug helper; keep the service importable without it
@@ -36,6 +38,12 @@ class Observation:
     similarity: float
     decision: str
     embedding: np.ndarray | None = None
+    quality_tier: str = "unknown"
+    match_margin: float = 0.0
+    quality: FaceQuality | None = None
+    detail: Decision | None = None
+    candidates: tuple[Candidate, ...] = ()
+    cluster_id: str | None = None
 
     @property
     def evidence(self) -> float:
@@ -71,7 +79,8 @@ class AttendanceService:
         try:
             for index in usable:
                 observations.extend(
-                    self._analyze_image(images[index], index, multi, gallery, request_id, include_embeddings)
+                    self._analyze_image(images[index], index, multi, gallery, request_id, qualities[index],
+                                        include_embeddings)
                 )
         finally:
             self._gate.release()
@@ -79,13 +88,14 @@ class AttendanceService:
         for observation in observations:
             self._save_crop(request_id, images[observation.image_index], observation)
         faces = self._deduplicate(observations)
+        self._cluster_unknowns(faces)
         logger.info("request=%s images=%d usable=%d faces=%d returned=%d",
                     request_id, len(images), len(usable), len(observations), len(faces))
         return self._response(image_quality, faces, include_embeddings, qualities,
                               duplicates=len(observations) - len(faces))
 
     def _analyze_image(self, image: np.ndarray, index: int, multi: bool, gallery, request_id: str,
-                       include_embeddings: bool = False) -> list[Observation]:
+                       image_quality: ImageQuality, include_embeddings: bool = False) -> list[Observation]:
         detected = self._detection.detect(image)
         raw_faces = [f for f in detected if f.score >= self._settings.detection_threshold]
         if len(raw_faces) != len(detected):
@@ -104,29 +114,26 @@ class AttendanceService:
         embeddings = self._recognition.embed([r[2] for r in eligible])
         matches = self._recognition.match(embeddings, gallery)
         match_by_id = {r[0]: m for r, m in zip(eligible, matches)}
-        embedding_by_id = {r[0]: e for r, e in zip(eligible, embeddings)} if include_embeddings else {}
+        embedding_by_id = {r[0]: e for r, e in zip(eligible, embeddings)}
 
         observations = []
         for face_id, face, _, quality in records:
             match = match_by_id.get(face_id)
-            embedding = embedding_by_id.get(face_id)
-            if match is None:
-                observations.append(
-                    self._observation(face_id, index, face, quality, None, 0.0, UNKNOWN, width, height, embedding)
-                )
-                continue
-            decision = self._recognition.decide(match, quality.tier)
-            student_id = match.student_id if decision != UNKNOWN else None
-            observations.append(
-                self._observation(face_id, index, face, quality, student_id, match.similarity, decision,
-                                  width, height, embedding)
-            )
+            detail = self._recognition.decide(match, quality, image_quality)
+            student_id = match.student_id if match is not None and detail.decision != UNKNOWN else None
+            observations.append(self._observation(
+                face_id, index, face, quality, student_id,
+                match.similarity if match is not None else 0.0, detail, width, height,
+                embedding_by_id.get(face_id), match.margin if match is not None else 0.0,
+                match.candidates if match is not None else (),
+            ))
         return observations
 
     @staticmethod
     def _observation(face_id: str, index: int, face, quality: FaceQuality, student_id: str | None,
-                     similarity: float, decision: str, width: int, height: int,
-                     embedding: np.ndarray | None = None) -> Observation:
+                     similarity: float, detail: Decision, width: int, height: int,
+                     embedding: np.ndarray | None = None, match_margin: float = 0.0,
+                     candidates: tuple[Candidate, ...] = ()) -> Observation:
         return Observation(
             face_id=face_id,
             image_index=index,
@@ -135,23 +142,44 @@ class AttendanceService:
             face_quality=quality.score,
             student_id=student_id,
             similarity=round(similarity, 4),
-            decision=decision,
+            decision=detail.decision,
             embedding=embedding,
+            quality_tier=quality.tier,
+            match_margin=round(float(match_margin), 4),
+            quality=quality,
+            detail=detail,
+            candidates=candidates,
         )
 
     @staticmethod
     def _deduplicate(observations: list[Observation]) -> list[Observation]:
-        best: dict[str, Observation] = {}
+        best_by_image_student: dict[tuple[int, str], Observation] = {}
         for observation in observations:
             if observation.student_id is None:
                 continue
-            current = best.get(observation.student_id)
+            key = (observation.image_index, observation.student_id)
+            current = best_by_image_student.get(key)
             if current is None or (DECISION_RANK[observation.decision], -observation.evidence) < (
                 DECISION_RANK[current.decision], -current.evidence
             ):
-                best[observation.student_id] = observation
-        kept = [o for o in observations if o.student_id is None or best[o.student_id] is o]
+                best_by_image_student[key] = observation
+        kept_ids = {id(observation) for observation in best_by_image_student.values()}
+        kept = [o for o in observations if o.student_id is None or id(o) in kept_ids]
         return sorted(kept, key=lambda o: (o.image_index, o.face_id))
+
+    def _cluster_unknowns(self, faces: list[Observation]) -> None:
+        """Give unknown faces that are probably one person seen in several photos the same clusterId. Nothing is dropped."""
+        threshold = self._settings.unknown_cluster_threshold
+        centres: list[np.ndarray] = []
+        for face in faces:
+            if face.student_id is not None or face.embedding is None:
+                continue
+            scores = [float(face.embedding @ c) for c in centres]
+            if scores and max(scores) >= threshold:
+                face.cluster_id = f"u{int(np.argmax(scores)) + 1}"
+            else:
+                centres.append(face.embedding)
+                face.cluster_id = f"u{len(centres)}"
 
     def _save_crop(self, request_id: str, image: np.ndarray, observation: Observation) -> None:
         self._crops.save(request_id, image, observation.face_id, observation.bbox,
@@ -173,12 +201,49 @@ class AttendanceService:
             return ImageQuality("poor", round(blur, 2), round(brightness, 3), worst.message)
         return ImageQuality("good", round(blur, 2), round(brightness, 3), None)
 
-    @staticmethod
-    def _response(image_quality: ImageQuality, faces: list[Observation], include_embeddings: bool = False,
+    def _policy(self) -> dict:
+        s = self._settings
+        return {
+            "version": POLICY_VERSION,
+            "highConfidenceThreshold": s.high_confidence_threshold,
+            "reviewThreshold": s.review_threshold,
+            "minMatchMargin": s.min_match_margin,
+            "faceHighMinSide": s.face_high_min_side,
+            "faceHighMinSharpness": s.face_high_min_sharpness,
+            "faceHighMinFrontalness": s.face_high_min_frontalness,
+            "faceHighMinQuality": s.face_high_min_quality,
+            "requireGoodImageForHigh": s.high_requires_good_image,
+        }
+
+    def _response(self, image_quality: ImageQuality, faces: list[Observation], include_embeddings: bool = False,
                   qualities: list[ImageQuality] | None = None, duplicates: int = 0) -> dict:
         counts = {HIGH: 0, REVIEW: 0, UNKNOWN: 0}
+        review_reasons: dict[str, int] = {}
         for face in faces:
             counts[face.decision] += 1
+            if face.decision == REVIEW and face.detail is not None:
+                for reason in face.detail.reasons:
+                    review_reasons[reason.code] = review_reasons.get(reason.code, 0) + 1
+
+        def detail_payload(f: Observation) -> dict | None:
+            if f.detail is None or f.quality is None:
+                return None
+            q = f.quality
+            return {
+                "identityPassed": f.detail.identity_passed,
+                "qualityPassed": f.detail.quality_passed,
+                "similarity": f.similarity,
+                "margin": f.match_margin,
+                "faceTier": q.tier,
+                "faceSide": round(q.side, 1),
+                "faceSharpness": round(q.sharpness, 3),
+                "faceFrontalness": round(q.frontalness, 3),
+                "faceVisibility": round(q.visibility, 3),
+                "imageStatus": qualities[f.image_index].status if qualities else None,
+                "reasons": [
+                    {"code": r.code, "gate": r.gate, "message": r.message} for r in f.detail.reasons
+                ],
+            }
 
         def face_payload(f: Observation) -> dict:
             payload = {
@@ -186,15 +251,21 @@ class AttendanceService:
                 "bbox": f.bbox,
                 "detectionConfidence": f.detection_confidence,
                 "faceQuality": f.face_quality,
+                "qualityTier": f.quality_tier,
+                "matchMargin": f.match_margin,
+                "clusterId": f.cluster_id,
                 "studentId": f.student_id,
                 "similarity": f.similarity,
                 "decision": f.decision,
+                "decisionDetail": detail_payload(f),
+                "candidates": [{"studentId": c.student_id, "similarity": c.similarity} for c in f.candidates],
             }
             if include_embeddings and f.embedding is not None:
                 payload["embedding"] = f.embedding.astype("float32").tolist()
             return payload
 
         return {
+            "policy": self._policy(),
             "imageQuality": {
                 "status": image_quality.status,
                 "blurScore": image_quality.blur_score,
@@ -208,6 +279,7 @@ class AttendanceService:
                     "blurScore": quality.blur_score,
                     "brightnessScore": quality.brightness_score,
                     "message": quality.message,
+                    "issues": list(quality.issues),
                 }
                 for index, quality in enumerate(qualities or [])
             ],
@@ -218,5 +290,6 @@ class AttendanceService:
                 "needsReview": counts[REVIEW],
                 "unknown": counts[UNKNOWN],
                 "duplicateObservations": duplicates,
+                "reviewReasons": review_reasons,
             },
         }

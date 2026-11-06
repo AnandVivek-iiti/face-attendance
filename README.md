@@ -49,13 +49,31 @@ A full-stack face-attendance system for IIT Indore, enabling professors to take 
 | `GET` | `/api/attendance/sessions/:id/export` | Per-session attendance CSV. |
 | `GET` | `/api/attendance/export` | Full student×session matrix CSV. |
 
-## ML Service
+## Attendance decisions and review policy
 
-- **Port**: 8000
-- **Model**: `buffalo_l` (InsightFace, CPU-only, 512-dim embeddings)
-- **Endpoints**: `GET /health`, `POST /generate-embedding`, `POST /analyze-classroom`, `POST /crop-face`
-- **Stateless**: receives gallery per request, stores nothing.
-- **Thresholds**: HIGH ≥ 0.55, REVIEW 0.40–0.55, UNKNOWN < 0.40 (margin 0.05).
+The ML confidence label and the final attendance status are separate decisions.
+
+### ML service decision
+
+- **HIGH**: identity similarity meets `HIGH_CONFIDENCE_THRESHOLD`, face quality is acceptable (`quality_tier=ok`), and the best-vs-second-best student margin meets `MIN_MATCH_MARGIN`. The configured quality bypass is only used when its explicit similarity and margin conditions are met.
+- **REVIEW**: a student candidate exists above `REVIEW_THRESHOLD`, but quality, similarity, or matching margin is not sufficient for an automatic identity decision.
+- **UNKNOWN**: no candidate is assigned, similarity is below the review floor, or face quality is rejected.
+
+The ML service does not write attendance records.
+
+### Node attendance reconciliation
+
+- A HIGH match to an enrolled student can be marked **Present** automatically.
+- REVIEW matches remain **Needs review**; Node must not silently promote them to HIGH or Present.
+- Rescue matches from the Node-side second-pass embedding comparison are REVIEW only because that path does not calculate the full ML quality tier and best-vs-runner-up margin.
+- A student with no reliable face evidence is **Absent** only when the processed images and reference data are adequate for an absence decision. If a classroom image is poor or the student has no reference embedding, the record is **Needs review** rather than automatically Absent.
+- Unknown or unassigned faces remain available for professor review/assignment; they are never automatically enrolled.
+
+### Important thresholds
+
+`HIGH_CONFIDENCE_THRESHOLD`, `REVIEW_THRESHOLD`, and `MIN_MATCH_MARGIN` control ML identity confidence. They do not directly set the final Node attendance status. `PRESENT_SIMILARITY_THRESHOLD` is the Node-side minimum similarity for accepting a candidate as an identified match; it is not a rule that turns every candidate into Present. `RESCUE_SIMILARITY_THRESHOLD` is the minimum score for the secondary rescue pass, whose results remain REVIEW.
+
+For the full decision flow and calibration guidance, see `ml-service/README.md` and the environment table below.
 
 ## Server (Node)
 
@@ -171,6 +189,8 @@ Copy `server/.env.example` → `server/.env`, `ml-service/.env.example` → `ml-
 | `RESEND_API_KEY` / `SENDGRID_API_KEY` / `BREVO_API_KEY` | Failover for hosts that block outbound SMTP (e.g. Render): create an API key at resend.com / sendgrid.com / brevo.com and set the matching variable. Providers are tried automatically in order **SMTP → Resend → SendGrid → Brevo**, and any that fail are skipped. Only ones with a key set are used; optional `EMAIL_PROVIDER` pins a single one. |
 | `SERVER_URL` | Public origin of the server (used to build emailed sign-in links); defaults to `http://localhost:5000`. |
 | `CLIENT_URL`, `VITE_API_BASE_URL`, `VITE_ASSET_BASE_URL`, `ML_SERVICE_URL` | Your own service URLs (localhost in dev, deployed URLs in production). |
+| `PRESENT_SIMILARITY_THRESHOLD` | Optional Node-side minimum similarity for treating a face as a candidate matched to an enrolled student; defaults to `0.30`. This does **not** make REVIEW matches Present. |
+| `RESCUE_SIMILARITY_THRESHOLD` | Optional minimum similarity for the Node-side rescue pass; defaults to `0.20`. Rescue matches remain REVIEW pending professor confirmation. |
 
 Google OAuth: create a project, configure the OAuth consent screen, add the **Authorized redirect URI** `https://<server-host>/api/auth/google/callback`, then copy the Client ID and secret. The secret is server-side only — never put it in `client/.env`.
 
@@ -187,11 +207,13 @@ Google sign-in requires `GOOGLE_CALLBACK_URL=https://<server-host>/api/auth/goog
 
 ## Tests
 
-| Suite | Result |
-|-------|--------|
-| `npm test` (server) | 37 passed, 1 skipped |
-| `python -m pytest` (ML) | 49 passed, 7 skipped |
-| `npm run build` (client) | 1711 modules, no errors |
+Run the suites against the current checkout before deployment:
+
+- Server: `cd server && npm test`
+- ML: `cd ml-service && python -m pytest`
+- Client: `cd client && npm run build`
+
+Historical test counts from an earlier revision are not a guarantee for this revision. The attendance reconciliation tests should specifically verify that REVIEW and rescue matches do not become Present automatically.
 
 ## Constraints
 

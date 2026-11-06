@@ -14,6 +14,10 @@ const evidenceSchema = new mongoose.Schema(
     faceQuality: { type: Number, default: null },
     detectionConfidence: { type: Number, default: null },
     decision: { type: String, default: null },
+    matchMargin: { type: Number, default: null },
+    qualityTier: { type: String, default: null },
+    decisionReason: { type: String, default: null },
+    qualityReasons: { type: [String], default: [] },
   },
   { _id: false },
 );

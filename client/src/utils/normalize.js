@@ -77,9 +77,15 @@ export function normalizeStudent(raw = {}) {
   let faceImages = (raw.faceImages ?? raw.faces ?? [])
     .map((item) => (typeof item === 'string' ? { url: item } : item))
     .map((item) => ({ id: idOf(item) ?? item.url, url: assetUrl(item.url ?? item.path) }));
-  // The server stores a single `registeredImage` relative path (served from /api/files), not an array, so synthesize one entry when no array is...
+  // GridFS references are exposed as authenticated image URLs; keep legacy path support during migration.
+  if (!faceImages.length && raw.registeredImageFileId) {
+    faceImages = [{
+      id: String(raw.registeredImageFileId),
+      url: assetUrl(`/api/files/registered-face/${raw._id ?? raw.id ?? raw.studentId}`),
+    }];
+  }
   if (!faceImages.length && raw.registeredImage) {
-    faceImages = [{ id: 'registered', url: assetUrl(`/api/files/${raw.registeredImage}`) }];
+    faceImages = [{ id: 'registered-legacy', url: assetUrl(`/api/files/${raw.registeredImage}`) }];
   }
   return {
     id: idOf(raw) ?? rollNumber,
@@ -143,6 +149,10 @@ function normalizeFace(face, position, imageIndex, imageId) {
     bbox: face.bbox ?? [0, 0, 0, 0],
     detectionConfidence: face.detectionConfidence ?? null,
     faceQuality: face.faceQuality ?? null,
+    qualityTier: face.qualityTier ?? null,
+    qualityReasons: face.qualityReasons ?? [],
+    matchMargin: face.matchMargin ?? null,
+    decisionReason: face.decisionReason ?? null,
     studentId: face.studentId ?? null,
     similarity: face.similarity ?? null,
     decision: face.decision ?? DECISION.UNKNOWN,

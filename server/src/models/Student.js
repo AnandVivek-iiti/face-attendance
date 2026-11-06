@@ -10,7 +10,21 @@ const studentSchema = new mongoose.Schema(
     department: { type: String, required: true, trim: true },
     semester: { type: Number, required: true, min: 1, max: 12 },
     section: { type: String, required: true, set: upperTrim },
+    // Legacy filesystem path retained for backward compatibility during migration.
     registeredImage: { type: String, default: null },
+    // Current GridFS image plus append-only references to previously registered face photos.
+    registeredImageFileId: { type: mongoose.Schema.Types.ObjectId, default: null },
+    registeredFaceImages: {
+      type: [{
+        fileId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        filename: { type: String, required: true },
+        mimeType: { type: String, required: true },
+        size: { type: Number, required: true },
+        source: { type: String, default: 'registered' },
+        uploadedAt: { type: Date, default: Date.now }
+      }],
+      default: []
+    },
     // Reference face vectors accumulated over time.
     faceEmbeddings: { type: [[Number]], select: false, default: [] },
     // The insightface pack that produced faceEmbeddings.

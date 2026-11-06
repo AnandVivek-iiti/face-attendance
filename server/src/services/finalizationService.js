@@ -8,7 +8,7 @@ const { SESSION_STATUS, RECORD_STATUS, AUDIT_ACTIONS } = require('../config/cons
 
 const FINAL_STATUSES = [RECORD_STATUS.PRESENT, RECORD_STATUS.ABSENT];
 
-const finalizeSession = async (id, user) => {
+const finalizeSession = async (id, user, { acknowledgeUnresolved = false } = {}) => {
   const session = await sessionService.getOwnedSession(id, user);
   sessionService.assertNotFinalized(session);
   if (session.status !== SESSION_STATUS.REVIEW) {
@@ -28,6 +28,17 @@ const finalizeSession = async (id, user) => {
     throw new AppError('All records marked for review must be resolved before finalizing', 409, {
       code: 'REVIEW_PENDING',
       details: { pendingStudentIds: pending.map((record) => record.studentId?.studentId ?? null) }
+    });
+  }
+
+  // Faces nobody was assigned to (rejected-quality crops excluded: they cannot be enrolled) need an explicit acknowledgement.
+  const unresolved = ((session.analysis && session.analysis.faces) || []).filter(
+    (face) => !face.studentId && face.qualityTier !== 'reject'
+  ).length;
+  if (unresolved > 0 && !acknowledgeUnresolved) {
+    throw new AppError(`${unresolved} detected face(s) are not matched to any student`, 409, {
+      code: 'UNRESOLVED_FACES',
+      details: { unresolvedFaces: unresolved }
     });
   }
 

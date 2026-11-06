@@ -20,7 +20,7 @@ function applyFilter(rows, filter, query) {
   return rows.filter((row) => {
     if (filter === 'needs_review' && row.aiResult !== DECISION.REVIEW) return false;
     if (filter === 'present' && row.status !== 'present') return false;
-    if (filter === 'absent' && row.status === 'present') return false;
+    if (filter === 'absent' && row.status !== 'absent') return false;
     if (!term) return true;
     return row.name.toLowerCase().includes(term) || String(row.rollNumber).toLowerCase().includes(term);
   });

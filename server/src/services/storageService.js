@@ -5,6 +5,7 @@ const env = require('../config/env');
 const AppError = require('../utils/AppError');
 const { detectImageType } = require('../utils/fileSignature');
 const { IMAGE_MIME_TYPES, LIMITS } = require('../config/constants');
+const registeredFaceStore = require('./registeredFaceStore');
 
 const root = env.storageRoot;
 
@@ -139,5 +140,8 @@ module.exports = {
   readFile,
   removeFiles,
   removeStored,
-  cleanTemporary
+  cleanTemporary,
+  storeRegisteredFace: registeredFaceStore.store,
+  readRegisteredFace: registeredFaceStore.getFile,
+  removeRegisteredFace: registeredFaceStore.remove
 };

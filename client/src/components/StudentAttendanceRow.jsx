@@ -86,6 +86,27 @@ export default function StudentAttendanceRow({
               <>
                 <p className="text-sm font-semibold tabular-nums text-ink">{percent(row.similarity)}</p>
                 <FaceQualityLabel score={row.faceQuality} />
+                {row.aiResult === 'high_confidence' && (
+                  <p className="mt-1 text-[11px] font-semibold text-ok-dark">
+                    Identity and visibility checks passed
+                  </p>
+                )}
+                {row.face.matchMargin !== null && row.face.matchMargin !== undefined && (
+                  <p className="mt-0.5 text-[11px] text-muted">Match margin: {percent(row.face.matchMargin)}</p>
+                )}
+                {row.face.decisionReason && row.aiResult === 'needs_review' && (
+                  <p className="mt-1 max-w-[190px] text-[11px] leading-snug text-warn" title={row.face.decisionReason}>
+                    {row.face.decisionReason.split(';').map((reason) => ({
+                      identity_similarity_below_auto_accept_threshold: 'Similarity below auto-accept threshold',
+                      identity_match_margin_too_small: 'Ambiguous identity match (low margin)',
+                      face_resolution_below_auto_accept_minimum: 'Face too small for automatic acceptance',
+                      face_sharpness_below_auto_accept_minimum: 'Face sharpness too low for automatic acceptance',
+                      face_pose_not_frontal_enough: 'Face angle needs review',
+                      face_not_fully_visible: 'Face is not fully visible',
+                      composite_face_quality_below_auto_accept_minimum: 'Overall face quality below threshold'
+                    }[reason] || reason.replaceAll('_', ' '))).join(' · ')}
+                  </p>
+                )}
               </>
             ) : (
               <span className="text-sm text-muted">None</span>
@@ -109,7 +130,7 @@ export default function StudentAttendanceRow({
               <ToggleButton pressed={row.status === 'present'} tone="ok" icon={Check} onClick={() => onPresent(row)}>
                 Present
               </ToggleButton>
-              <ToggleButton pressed={row.status !== 'present'} tone="bad" icon={X} onClick={() => onAbsent(row)}>
+              <ToggleButton pressed={row.status === 'absent'} tone="bad" icon={X} onClick={() => onAbsent(row)}>
                 Absent
               </ToggleButton>
             </div>

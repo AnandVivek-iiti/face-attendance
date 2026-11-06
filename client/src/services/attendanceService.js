@@ -91,8 +91,8 @@ export async function exportAllCsv() {
   return http.get('/api/attendance/export', { responseType: 'text' });
 }
 
-export async function finalizeSession(sessionId) {
-  await http.post(`/api/attendance/sessions/${sessionId}/finalize`, {});
+export async function finalizeSession(sessionId, { acknowledgeUnresolved = false } = {}) {
+  await http.post(`/api/attendance/sessions/${sessionId}/finalize`, { acknowledgeUnresolved });
 }
 
 export async function deleteSession(sessionId) {

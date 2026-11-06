@@ -98,7 +98,15 @@ const applyAssignment = async (session, course, face, input) => {
   if (!face.embedding || !face.embedding.length) {
     throw new AppError('This face has no embedding to store', 422, { code: 'FACE_NO_EMBEDDING' });
   }
-  const { student, created } = await resolveStudent(course, input.rollNumber, input.name, input.department);
+  let resolved = null;
+  if (!input.rollNumber && face.studentId) {
+    // The face is already linked to a roster student: confirming it must not mint a second, auto-generated student.
+    const prior = await Student.findOne({
+      studentId: face.studentId, semester: course.semester, section: course.section, active: true
+    });
+    if (prior) resolved = { student: prior, created: false };
+  }
+  const { student, created } = resolved || (await resolveStudent(course, input.rollNumber, input.name, input.department));
 
   // Keep several classroom captures per student.
   await studentService.appendEmbedding(

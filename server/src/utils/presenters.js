@@ -28,9 +28,14 @@ const face = (value) => ({
   bbox: value.bbox || [],
   detectionConfidence: value.detectionConfidence ?? null,
   faceQuality: value.faceQuality ?? null,
+  qualityTier: value.qualityTier ?? null,
+  qualityReasons: value.qualityReasons ?? [],
+  matchMargin: value.matchMargin ?? null,
+  decisionReason: value.decisionReason ?? null,
   studentId: value.studentId ?? null,
   similarity: value.similarity ?? null,
-  decision: value.decision ?? null
+  decision: value.decision ?? null,
+  clusterId: value.clusterId ?? null
 });
 
 const image = (value) => ({
@@ -59,7 +64,11 @@ const evidence = (value) => ({
   bbox: value.bbox,
   similarity: value.similarity,
   faceQuality: value.faceQuality,
-  decision: value.decision
+  decision: value.decision,
+  matchMargin: value.matchMargin ?? null,
+  qualityTier: value.qualityTier ?? null,
+  decisionReason: value.decisionReason ?? null,
+  qualityReasons: value.qualityReasons ?? []
 });
 
 const record = (value) => {

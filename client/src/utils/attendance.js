@@ -20,6 +20,7 @@ export function qualityAlerts(session) {
 }
 
 export function matchNote(face) {
+  if (face.decision === DECISION.REVIEW) return 'Ambiguous identity. No student ID has been assigned; professor confirmation is required.';
   if (face.decision !== DECISION.UNKNOWN) return null;
   if (!face.similarity) return 'Not compared. The face is too small, blurry or poorly lit.';
   return 'No enrolled student matched closely enough.';
@@ -99,7 +100,7 @@ export function buildReview(session, state = emptyReviewState) {
     return {
       ...face,
       owner: owner ? owner.studentId : null,
-      name: owner ? owner.name : unmatchedId ? `Not enrolled (${unmatchedId})` : 'Unknown face',
+      name: owner ? owner.name : unmatchedId ? `Not enrolled (${unmatchedId})` : face.decision === DECISION.REVIEW ? 'Ambiguous identity — unassigned' : 'Unknown face',
       dismissed: dismissedSet.has(face.key),
     };
   });
@@ -115,6 +116,8 @@ export function buildReview(session, state = emptyReviewState) {
     needsReview: rows.filter((row) => row.aiResult === DECISION.REVIEW).length,
     pendingReview: rows.filter((row) => row.needsAttention).length,
     notDetected: rows.filter((row) => !row.face).length,
+    // A face is attached to the student yet the record is not Present: surfaces any disagreement between the two data sources.
+    detectedNotPresent: detectedRows.filter((row) => row.status !== 'present').length,
     unmatched: unmatchedFaces.length,
     present: rows.filter((row) => row.status === 'present').length,
     absent: rows.filter((row) => row.status !== 'present').length,

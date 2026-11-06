@@ -1,14 +1,24 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from app.config import Settings
 from app.models.face_recognizer import FaceRecognizer
+from app.services.quality_check import FaceQuality, ImageQuality
+from app.services.reasons import IDENTITY, QUALITY, Reason
 from app.utils.embedding_utils import Gallery, student_similarity
 
 HIGH = "high_confidence"
 REVIEW = "needs_review"
 UNKNOWN = "unknown"
+
+POLICY_VERSION = 2
+
+
+@dataclass(frozen=True)
+class Candidate:
+    student_id: str
+    similarity: float
 
 
 @dataclass(frozen=True)
@@ -16,6 +26,18 @@ class Match:
     student_id: str | None
     similarity: float
     margin: float
+    student_margin: float = 1.0
+    face_margin: float = 1.0
+    contested_with: str | None = None
+    candidates: tuple[Candidate, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class Decision:
+    decision: str
+    identity_passed: bool
+    quality_passed: bool
+    reasons: tuple[Reason, ...]
 
 
 class RecognitionService:
@@ -32,38 +54,52 @@ class RecognitionService:
     def match(self, embeddings: np.ndarray, gallery: Gallery) -> list[Match]:
         if embeddings.shape[0] == 0:
             return []
-        # A course's first session has no roster yet: every face is unmatched so the professor can build the list by hand.
         if gallery.matrix.shape[0] == 0:
             return [Match(None, 0.0, 0.0) for _ in range(embeddings.shape[0])]
         scores = student_similarity(embeddings, gallery, self._settings.gallery_pooling)
         assigned = self._assign_unique(scores)
-        matches = []
-        for face_index in range(scores.shape[0]):
-            student_index = assigned.get(face_index)
-            if student_index is None:
-                claimed = set(assigned.values())
-                free = [j for j in range(scores.shape[1]) if j not in claimed]
-                best = float(scores[face_index, free].max()) if free else 0.0
-                matches.append(Match(None, best, 0.0))
-                continue
-            similarity = float(scores[face_index, student_index])
-            others = np.delete(scores[face_index], student_index)
-            margin = similarity - float(others.max()) if others.size else 1.0
-            matches.append(Match(gallery.student_ids[student_index], similarity, margin))
-        return matches
+        owner_of_student = {student: face for face, student in assigned.items()}
+        return [self._match_face(face, scores, gallery, assigned, owner_of_student)
+                for face in range(scores.shape[0])]
 
-    @property
-    def _match_floor(self) -> float:
-        return self._settings.review_threshold
+    def _match_face(self, face: int, scores: np.ndarray, gallery: Gallery, assigned: dict[int, int],
+                    owner_of_student: dict[int, int]) -> Match:
+        s = self._settings
+        row = scores[face]
+        ranked = np.argsort(-row)
+        candidates = tuple(
+            Candidate(gallery.student_ids[int(j)], round(float(row[j]), 4))
+            for j in ranked[:s.candidate_count] if row[j] >= s.review_threshold
+        )
+        student = assigned.get(face)
+        if student is None:
+            best = int(ranked[0])
+            best_similarity = float(row[best])
+            owner = owner_of_student.get(best)
+            contested = (
+                owner is not None
+                and best_similarity >= s.review_threshold
+                and float(scores[owner, best]) - best_similarity <= s.contested_review_gap
+            )
+            return Match(None, best_similarity, 0.0, candidates=candidates,
+                         contested_with=gallery.student_ids[best] if contested else None)
+        similarity = float(row[student])
+        other_students = np.delete(row, student)
+        student_margin = similarity - float(other_students.max()) if other_students.size else 1.0
+        other_faces = np.delete(scores[:, student], face)
+        face_margin = similarity - float(other_faces.max()) if other_faces.size else 1.0
+        return Match(gallery.student_ids[student], similarity, min(student_margin, face_margin),
+                     student_margin, face_margin, candidates=candidates)
 
     def _assign_unique(self, scores: np.ndarray) -> dict[int, int]:
+        floor = self._settings.review_threshold
         order = np.argsort(-scores, axis=None)
         faces_taken: set[int] = set()
         students_taken: set[int] = set()
         assigned: dict[int, int] = {}
         for flat in order:
             face_index, student_index = divmod(int(flat), scores.shape[1])
-            if scores[face_index, student_index] < self._match_floor:
+            if scores[face_index, student_index] < floor:
                 break
             if face_index in faces_taken or student_index in students_taken:
                 continue
@@ -72,14 +108,71 @@ class RecognitionService:
             students_taken.add(student_index)
         return assigned
 
-    def decide(self, match: Match, quality_tier: str) -> str:
-        """README decision rules: reject tier never claims a student; HIGH needs
-        similarity, clean quality tier and margin; otherwise REVIEW above the floor."""
+    def decide(self, match: Match | None, face: FaceQuality, image: ImageQuality) -> Decision:
         s = self._settings
-        if match.student_id is None or quality_tier == "reject" or match.similarity < s.review_threshold:
-            return UNKNOWN
-        clean = quality_tier == "ok" and match.margin >= s.min_match_margin
-        bypass = match.similarity >= s.quality_bypass_similarity and match.margin >= s.quality_bypass_margin
-        if match.similarity >= s.high_confidence_threshold and (clean or bypass):
-            return HIGH
-        return REVIEW
+        if face.tier == "reject" or match is None:
+            reasons = face.issues or (Reason("face_unreadable", QUALITY, "Face could not be read reliably."),)
+            return Decision(UNKNOWN, False, False, tuple(reasons))
+
+        quality_reasons = list(face.issues) if face.tier != "ok" else []
+        if s.high_requires_good_image and image.status != "good":
+            quality_reasons.append(self._image_reason(image))
+        quality_passed = not quality_reasons
+
+        if match.student_id is None and match.contested_with is None:
+            return Decision(UNKNOWN, False, quality_passed, (self._below_review(match),) + tuple(quality_reasons))
+        if match.student_id is None:
+            reasons = (self._contested_reason(match),) + tuple(quality_reasons)
+            return Decision(REVIEW, False, quality_passed, reasons)
+
+        identity_reasons = self._identity_reasons(match)
+        identity_passed = not identity_reasons
+        if identity_passed and quality_passed:
+            return Decision(HIGH, True, True, ())
+        return Decision(REVIEW, identity_passed, quality_passed, tuple(identity_reasons) + tuple(quality_reasons))
+
+    def _identity_reasons(self, match: Match) -> list[Reason]:
+        s = self._settings
+        found = []
+        if match.similarity < s.high_confidence_threshold:
+            found.append(Reason(
+                "similarity_below_high", IDENTITY,
+                f"Match score {match.similarity:.2f} is under the {s.high_confidence_threshold:.2f} needed for automatic confirmation.",
+            ))
+        if match.student_margin < s.min_match_margin:
+            found.append(Reason(
+                "close_runner_up", IDENTITY,
+                f"Another student scores within {max(match.student_margin, 0.0):.2f} of this match (needs a gap of {s.min_match_margin:.2f}).",
+            ))
+        if match.face_margin < s.min_match_margin:
+            found.append(Reason(
+                "contested_by_other_face", IDENTITY,
+                f"Another face in this photo scores within {max(match.face_margin, 0.0):.2f} for the same student (needs a gap of {s.min_match_margin:.2f}).",
+            ))
+        return found
+
+    def _below_review(self, match: Match) -> Reason:
+        s = self._settings
+        if match.similarity <= 0.0:
+            return Reason("no_roster_match", IDENTITY, "No enrolled student matches this face.")
+        if match.similarity >= s.review_threshold:
+            return Reason("claimed_by_stronger_face", IDENTITY,
+                          "The closest student matches another face in this photo much better.")
+        return Reason(
+            "similarity_below_review", IDENTITY,
+            f"Best match score {match.similarity:.2f} is under the {s.review_threshold:.2f} needed to suggest a student.",
+        )
+
+    @staticmethod
+    def _contested_reason(match: Match) -> Reason:
+        return Reason(
+            "contested_by_other_face", IDENTITY,
+            f"Closest student {match.contested_with} was claimed by a stronger face in this photo; "
+            f"this face scores {match.similarity:.2f} for them.",
+        )
+
+    @staticmethod
+    def _image_reason(image: ImageQuality) -> Reason:
+        detail = ", ".join(image.issues).replace("_", " ") if image.issues else "overall quality"
+        return Reason("image_quality_poor", QUALITY,
+                      f"The photo is rated poor ({detail}), so matches in it need confirmation.")

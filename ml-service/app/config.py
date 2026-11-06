@@ -28,9 +28,14 @@ class Settings(BaseSettings):
     review_threshold: float = 0.40
     min_match_margin: float = 0.05
     # Faces smaller than this many pixels are not embedded at all (below it, recognition is meaningless).
-    min_embed_face_side: int = 12
-    quality_bypass_similarity: float = 1.01
-    quality_bypass_margin: float = 0.10
+    min_embed_face_side: int = 20
+    # Unknown faces from different photos of one request whose embeddings are at least this similar share a clusterId (grouping hint only).
+    unknown_cluster_threshold: float = 0.5
+    # A face that lost its roster entry to a stronger face still goes to review when it scores within this gap of the winner.
+    contested_review_gap: float = 0.10
+    candidate_count: int = 3
+    # Automatic HIGH needs the photo itself to be rated "good", not only the face crop.
+    high_requires_good_image: bool = True
     gallery_pooling: str = "max"
     embed_flip: bool = False
 
@@ -75,6 +80,10 @@ class Settings(BaseSettings):
     def validate_thresholds(self) -> "Settings":
         if not 0.0 <= self.review_threshold <= self.high_confidence_threshold <= 1.0:
             raise ValueError("require 0 <= REVIEW_THRESHOLD <= HIGH_CONFIDENCE_THRESHOLD <= 1")
+        if self.min_match_margin < 0.0 or self.contested_review_gap < 0.0:
+            raise ValueError("MIN_MATCH_MARGIN and CONTESTED_REVIEW_GAP must be >= 0")
+        if self.candidate_count < 1:
+            raise ValueError("CANDIDATE_COUNT must be >= 1")
         if self.device not in {"auto", "cpu", "cuda"}:
             raise ValueError("DEVICE must be auto, cpu or cuda")
         if self.gallery_pooling not in {"max", "top2", "centroid"}:

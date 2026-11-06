@@ -18,6 +18,11 @@ export default function FinalizeDialog({ open, summary, courseName, busy, onConf
           {summary.pendingReview} {summary.pendingReview === 1 ? 'face still needs' : 'faces still need'} review. They will be recorded with the current status.
         </p>
       )}
+      {summary.unmatched > 0 && (
+        <p className="mt-2 rounded-ctl border border-warn-line bg-warn-soft px-3 py-2 text-warn">
+          {summary.unmatched} detected {summary.unmatched === 1 ? 'face is' : 'faces are'} not matched to any student and will not be counted.
+        </p>
+      )}
       <p className="mt-2 text-muted">Finalized attendance is read-only and cannot be edited from this screen.</p>
     </ConfirmDialog>
   );

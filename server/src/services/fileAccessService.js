@@ -48,4 +48,19 @@ const canAccess = async (user, relativePath, info = classify(relativePath)) => {
   );
 };
 
-module.exports = { classify, canAccess };
+const canAccessRegisteredFace = async (user, studentRef) => {
+  const filter = /^[a-f\d]{24}$/i.test(String(studentRef))
+    ? { _id: studentRef }
+    : { studentId: String(studentRef) };
+  const student = await Student.findOne(filter).select('_id semester section').lean();
+  if (!student) return false;
+  if (user.role === ROLES.ADMIN) return true;
+  if (user.role !== ROLES.PROFESSOR) return false;
+  return Boolean(await Course.exists({
+    professorId: user._id,
+    semester: student.semester,
+    section: student.section
+  }));
+};
+
+module.exports = { classify, canAccess, canAccessRegisteredFace };

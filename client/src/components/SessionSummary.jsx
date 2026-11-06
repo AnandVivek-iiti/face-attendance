@@ -29,6 +29,11 @@ export default function SessionSummary({ summary }) {
             : `, ${summary.unmatched} not matched to an enrolled student`)}
         .
       </p>
+      {summary.detectedNotPresent > 0 && (
+        <p className="border-t border-line px-4 py-2 text-sm text-warn">
+          {summary.detectedNotPresent} matched {summary.detectedNotPresent === 1 ? 'student is' : 'students are'} not marked present. Check these rows before finalizing.
+        </p>
+      )}
     </section>
   );
 }

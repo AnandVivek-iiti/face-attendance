@@ -6,7 +6,6 @@ const courseService = require('./courseService');
 const mlClient = require('./mlClient');
 const recordService = require('./recordService');
 const reconciliationService = require('./reconciliationService');
-const faceRescueService = require('./faceRescueService');
 const sessionService = require('./sessionService');
 const storageService = require('./storageService');
 const { createLimiter } = require('../utils/limiter');
@@ -73,46 +72,62 @@ const groupFacesByImage = (faces, images) => {
 
 const hasEmbedding = (student) => Array.isArray(student.faceEmbeddings) && student.faceEmbeddings.length > 0;
 
-// Registered students whose face vector was never generated can never match, so they would always show Absent.
-// Build the missing vectors from their registered photo before recognition runs (best effort, a few at a time).
-const backfillMissingEmbeddings = async (enrolled) => {
-  const missing = enrolled.filter((student) => !hasEmbedding(student) && student.registeredImage);
+const validVector = (vector, dimension) =>
+  Array.isArray(vector) && vector.length === dimension && vector.every((value) => Number.isFinite(value));
+
+// Embeddings are only comparable when they were produced by the same model and have the expected dimension.
+// Rebuild from the registered photo when possible; otherwise keep the old data but exclude it from this gallery.
+const backfillMissingEmbeddings = async (enrolled, expectedModel, expectedDimension) => {
+  const needsRebuild = enrolled.filter((student) =>
+    !hasEmbedding(student) ||
+    student.embeddingModel !== expectedModel ||
+    !student.faceEmbeddings.every((vector) => validVector(vector, expectedDimension))
+  );
   const CONCURRENCY = 4;
-  for (let i = 0; i < missing.length; i += CONCURRENCY) {
+  const rebuilt = [];
+  const failed = [];
+  for (let i = 0; i < needsRebuild.length; i += CONCURRENCY) {
     await Promise.all(
-      missing.slice(i, i + CONCURRENCY).map(async (student) => {
+      needsRebuild.slice(i, i + CONCURRENCY).map(async (student) => {
         try {
+          if (!student.registeredImage) throw new Error('No registered photograph is available');
           const buffer = await storageService.readFile(student.registeredImage);
           const filename = student.registeredImage.split('/').pop();
-          const mimeType = filename.endsWith('.png') ? 'image/png' : filename.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+          const lower = filename.toLowerCase();
+          const mimeType = lower.endsWith('.png') ? 'image/png' : lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
           const result = await mlClient.generateEmbedding({ buffer, filename, mimeType });
+          if (result.embeddingModel !== expectedModel || result.embeddingDim !== expectedDimension || !validVector(result.embedding, expectedDimension)) {
+            throw new Error('Generated embedding does not match the active ML model');
+          }
           await Student.updateOne(
             { _id: student._id },
-            { $set: { faceEmbeddings: [result.embedding], embeddingModel: result.embeddingModel || null, hasFaceEmbedding: true } }
+            { $set: { faceEmbeddings: [result.embedding], embeddingModel: result.embeddingModel, hasFaceEmbedding: true } }
           );
           student.faceEmbeddings = [result.embedding];
-          student.embeddingModel = result.embeddingModel || null;
+          student.embeddingModel = result.embeddingModel;
+          student.hasFaceEmbedding = true;
+          rebuilt.push(student.studentId);
         } catch (error) {
-          console.error(`Could not build face reference for ${student.studentId}: ${error.message}`);
+          failed.push({ studentId: student.studentId, reason: error.message });
+          console.error(`Could not rebuild face reference for ${student.studentId}: ${error.message}`);
         }
       })
     );
   }
+  return { rebuilt, failed };
 };
 
-const buildGallery = (enrolled) => {
-  const withEmbeddings = enrolled.filter(
-    (student) => Array.isArray(student.faceEmbeddings) && student.faceEmbeddings.length > 0
+const buildGallery = (enrolled, expectedModel, expectedDimension) => {
+  const compatible = enrolled.filter((student) =>
+    hasEmbedding(student) &&
+    student.embeddingModel === expectedModel &&
+    student.faceEmbeddings.every((vector) => validVector(vector, expectedDimension))
   );
-  const gallery = withEmbeddings.map((student) => ({
-    studentId: student.studentId,
-    embeddings: student.faceEmbeddings
-  }));
-  const embeddingModel = withEmbeddings.find((student) => student.embeddingModel)?.embeddingModel || null;
+  const gallery = compatible.map((student) => ({ studentId: student.studentId, embeddings: student.faceEmbeddings }));
   const studentsWithoutEmbedding = enrolled
-    .filter((student) => !(Array.isArray(student.faceEmbeddings) && student.faceEmbeddings.length))
+    .filter((student) => !compatible.includes(student))
     .map((student) => student.studentId);
-  return { gallery, embeddingModel, studentsWithoutEmbedding };
+  return { gallery, embeddingModel: expectedModel, studentsWithoutEmbedding };
 };
 
 const persistRecords = async (sessionId, outcome) => {
@@ -160,9 +175,14 @@ const auditActionFor = (status) => {
 const runAnalysis = async (session, user) => {
   const course = await courseService.getById(session.courseId);
   // The roster is the students already enrolled in this course's semester/section.
+  if (!course.section) {
+    // Student.section is required, so a course without one matches nobody and every face would look like a new student.
+    throw new AppError('This course has no section, so its roster cannot be determined', 409, { code: 'COURSE_SECTION_MISSING' });
+  }
   const enrolled = await studentService.listEnrolledForCourse(course);
-  await backfillMissingEmbeddings(enrolled);
-  const { gallery, embeddingModel, studentsWithoutEmbedding } = buildGallery(enrolled);
+  const mlHealth = await mlClient.getHealth();
+  const embeddingRepair = await backfillMissingEmbeddings(enrolled, mlHealth.embeddingModel, mlHealth.embeddingDim);
+  const { gallery, embeddingModel, studentsWithoutEmbedding } = buildGallery(enrolled, mlHealth.embeddingModel, mlHealth.embeddingDim);
 
   const images = session.uploadedImages.map((image) => ({ image, document: image }));
   await Promise.all(
@@ -183,9 +203,6 @@ const runAnalysis = async (session, user) => {
     // A first session has no roster yet; still run detection so the professor can build the list by assigning each detected face.
     allowEmptyStudents: true
   });
-
-  const rescued = faceRescueService.rescueUnmatchedFaces(response.faces, enrolled);
-  if (rescued) console.log(`Second-pass matching rescued ${rescued} face(s)`);
 
   const perImageQuality = response.imageQualities || [];
   const facesByImage = groupFacesByImage(response.faces, images);
@@ -226,6 +243,8 @@ const runAnalysis = async (session, user) => {
       studentId: face.studentId ?? null,
       similarity: face.similarity ?? null,
       decision: face.decision,
+      qualityTier: face.qualityTier ?? null,
+      clusterId: face.clusterId ?? null,
       embedding: face.embedding ?? null
     }))
   );
@@ -233,7 +252,10 @@ const runAnalysis = async (session, user) => {
   const warnings = [
     ...unusable.map((entry) => ({ type: 'image_unusable', ...describeImage(entry.image) })),
     ...(studentsWithoutEmbedding.length
-      ? [{ type: 'missing_embeddings', message: 'Some enrolled students have no face reference yet', studentIds: studentsWithoutEmbedding }]
+      ? [{ type: 'missing_embeddings', message: 'Some enrolled students have no compatible face reference for the active ML model', studentIds: studentsWithoutEmbedding }]
+      : []),
+    ...(embeddingRepair.failed.length
+      ? [{ type: 'embedding_repair_failed', message: 'Some face references could not be rebuilt; those students were excluded from automatic recognition', students: embeddingRepair.failed }]
       : [])
   ];
 
@@ -253,6 +275,8 @@ const runAnalysis = async (session, user) => {
       })),
       faces: allFaces,
       unknownFaces: outcome.unknownFaces,
+      unknownClusterCount: outcome.unknownClusterCount,
+      rosterSize: enrolled.length,
       unassignedFaces: outcome.unassignedFaces,
       studentsWithoutEmbedding,
       warnings

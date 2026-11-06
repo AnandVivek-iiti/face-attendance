@@ -425,18 +425,27 @@ const getAttendance = async (user) => {
   };
 };
 
-const MAX_REFERENCE_EMBEDDINGS = 5;
+const { MAX_REFERENCE_EMBEDDINGS, nextReferences } = require('../utils/referenceEmbeddings');
 
 // Append a reference vector to a student.
 const appendEmbedding = async (student, embedding, model) => {
-  await Student.updateOne(
-    { _id: student._id },
-    {
-      $push: { faceEmbeddings: { $each: [embedding], $slice: -MAX_REFERENCE_EMBEDDINGS } },
-      $set: { hasFaceEmbedding: true, ...(model ? { embeddingModel: model } : {}) }
-    }
-  );
-  student.faceEmbeddings = [...(student.faceEmbeddings || []), embedding].slice(-MAX_REFERENCE_EMBEDDINGS);
+  const modelChanged = Boolean(model && student.embeddingModel && student.embeddingModel !== model);
+  if (modelChanged) {
+    await Student.updateOne(
+      { _id: student._id },
+      { $set: { faceEmbeddings: [embedding], embeddingModel: model, hasFaceEmbedding: true } }
+    );
+    student.faceEmbeddings = [embedding];
+  } else {
+    // Skip near-duplicates and keep the first (enrolment) reference when the cap is reached.
+    const stored = await Student.findById(student._id).select('+faceEmbeddings').lean();
+    const next = nextReferences((stored && stored.faceEmbeddings) || [], embedding);
+    await Student.updateOne(
+      { _id: student._id },
+      { $set: { faceEmbeddings: next, hasFaceEmbedding: true, ...(model ? { embeddingModel: model } : {}) } }
+    );
+    student.faceEmbeddings = next;
+  }
   student.hasFaceEmbedding = true;
   if (model) student.embeddingModel = model;
   return student;

@@ -19,7 +19,14 @@ export default function FaceDetail({ face, image, size }) {
         <dt className="text-muted">Similarity</dt>
         <dd className="tabular-nums text-ink">{face.similarity ? percent(face.similarity, 1) : 'Not compared'}</dd>
         <dt className="text-muted">Face quality</dt>
-        <dd><FaceQualityLabel score={face.faceQuality} /></dd>
+        <dd><FaceQualityLabel score={face.faceQuality} />{face.qualityTier ? ` · ${face.qualityTier}` : ''}</dd>
+        <dt className="text-muted">Match margin</dt>
+        <dd className="tabular-nums text-ink">{face.matchMargin == null ? 'Not available' : percent(face.matchMargin, 1)}</dd>
+        {face.decision === 'high_confidence' ? (
+          <><dt className="text-muted">Decision reason</dt><dd className="col-span-2 text-xs font-medium text-ok-dark">Identity, match margin and face-quality checks passed.</dd></>
+        ) : face.decisionReason ? (
+          <><dt className="text-muted">Decision reason</dt><dd className="col-span-2 text-xs text-warn">{face.decisionReason.split(';').map((value) => value.replaceAll('_', ' ')).join(' · ')}</dd></>
+        ) : null}
         {matchNote(face) && <dd className="col-span-2 text-xs text-muted">{matchNote(face)}</dd>}
       </dl>
     </div>
