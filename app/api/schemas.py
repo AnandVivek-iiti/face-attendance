@@ -10,6 +10,44 @@ class ImageQualityOut(BaseModel):
 
 class PerImageQualityOut(ImageQualityOut):
     index: int
+    issues: list[str] = []
+
+
+class ReasonOut(BaseModel):
+    code: str
+    gate: str
+    message: str
+
+
+class DecisionDetailOut(BaseModel):
+    identityPassed: bool
+    qualityPassed: bool
+    similarity: float
+    margin: float
+    faceTier: str
+    faceSide: float
+    faceSharpness: float
+    faceFrontalness: float
+    faceVisibility: float
+    imageStatus: str | None = None
+    reasons: list[ReasonOut] = []
+
+
+class CandidateOut(BaseModel):
+    studentId: str
+    similarity: float
+
+
+class PolicyOut(BaseModel):
+    version: int
+    highConfidenceThreshold: float
+    reviewThreshold: float
+    minMatchMargin: float
+    faceHighMinSide: int
+    faceHighMinSharpness: float
+    faceHighMinFrontalness: float
+    faceHighMinQuality: float
+    requireGoodImageForHigh: bool
 
 
 class FaceOut(BaseModel):
@@ -17,9 +55,14 @@ class FaceOut(BaseModel):
     bbox: list[int]
     detectionConfidence: float
     faceQuality: float
+    qualityTier: str = "unknown"
+    matchMargin: float = 0.0
+    clusterId: str | None = None
     studentId: str | None
     similarity: float
     decision: str
+    decisionDetail: DecisionDetailOut | None = None
+    candidates: list[CandidateOut] = []
     embedding: list[float] | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
@@ -29,9 +72,11 @@ class SummaryOut(BaseModel):
     needsReview: int
     unknown: int
     duplicateObservations: int = 0
+    reviewReasons: dict[str, int] = {}
 
 
 class AnalyzeResponse(BaseModel):
+    policy: PolicyOut | None = None
     imageQuality: ImageQualityOut
     imageQualities: list[PerImageQualityOut] = []
     faces: list[FaceOut]
