@@ -57,6 +57,7 @@ class FaceOut(BaseModel):
     faceQuality: float
     qualityTier: str = "unknown"
     matchMargin: float = 0.0
+    secondBestSimilarity: float | None = None
     clusterId: str | None = None
     studentId: str | None
     similarity: float
@@ -75,7 +76,16 @@ class SummaryOut(BaseModel):
     reviewReasons: dict[str, int] = {}
 
 
+class ExcludedStudentOut(BaseModel):
+    studentId: str
+    code: str
+    message: str
+
+
 class AnalyzeResponse(BaseModel):
+    embeddingModel: str
+    embeddingDim: int
+    excludedStudents: list[ExcludedStudentOut] = []
     policy: PolicyOut | None = None
     imageQuality: ImageQualityOut
     imageQualities: list[PerImageQualityOut] = []
@@ -87,6 +97,8 @@ class StudentIn(BaseModel):
     studentId: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.\-]+$")
     embedding: list[float] | None = None
     embeddings: list[list[float]] | None = None
+    # Model that produced this student's embedding(s). A mismatch excludes the student instead of comparing across models.
+    embeddingModel: str | None = Field(default=None, max_length=128)
 
 
 class ReferenceEmbeddingResponse(BaseModel):

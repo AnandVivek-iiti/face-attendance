@@ -30,6 +30,8 @@ class Match:
     face_margin: float = 1.0
     contested_with: str | None = None
     candidates: tuple[Candidate, ...] = field(default_factory=tuple)
+    second_best: float | None = None
+    invalid_embedding: bool = False
 
 
 @dataclass(frozen=True)
@@ -54,13 +56,21 @@ class RecognitionService:
     def match(self, embeddings: np.ndarray, gallery: Gallery) -> list[Match]:
         if embeddings.shape[0] == 0:
             return []
+        # A non-finite or zero-norm query embedding must never reach the comparisons below: every `<` against NaN is
+        # False, which would let it pass every threshold. Such faces are reported as unknown.
+        norms = np.linalg.norm(np.nan_to_num(embeddings, nan=0.0, posinf=0.0, neginf=0.0), axis=1)
+        valid = np.isfinite(embeddings).all(axis=1) & (norms > 1e-6)
         if gallery.matrix.shape[0] == 0:
-            return [Match(None, 0.0, 0.0) for _ in range(embeddings.shape[0])]
-        scores = student_similarity(embeddings, gallery, self._settings.gallery_pooling)
+            return [Match(None, 0.0, 0.0, invalid_embedding=not bool(ok)) for ok in valid]
+        scores = student_similarity(np.where(valid[:, None], embeddings, 0.0).astype(np.float32), gallery,
+                                    self._settings.gallery_pooling)
+        scores = np.where(np.isfinite(scores), scores, -1.0)
+        scores[~valid, :] = -1.0
         assigned = self._assign_unique(scores)
         owner_of_student = {student: face for face, student in assigned.items()}
-        return [self._match_face(face, scores, gallery, assigned, owner_of_student)
-                for face in range(scores.shape[0])]
+        matches = [self._match_face(face, scores, gallery, assigned, owner_of_student)
+                   for face in range(scores.shape[0])]
+        return [m if ok else Match(None, 0.0, 0.0, invalid_embedding=True) for m, ok in zip(matches, valid)]
 
     def _match_face(self, face: int, scores: np.ndarray, gallery: Gallery, assigned: dict[int, int],
                     owner_of_student: dict[int, int]) -> Match:
@@ -81,15 +91,17 @@ class RecognitionService:
                 and best_similarity >= s.review_threshold
                 and float(scores[owner, best]) - best_similarity <= s.contested_review_gap
             )
+            runner_up = float(row[ranked[1]]) if ranked.size > 1 else None
             return Match(None, best_similarity, 0.0, candidates=candidates,
-                         contested_with=gallery.student_ids[best] if contested else None)
+                         contested_with=gallery.student_ids[best] if contested else None, second_best=runner_up)
         similarity = float(row[student])
         other_students = np.delete(row, student)
         student_margin = similarity - float(other_students.max()) if other_students.size else 1.0
         other_faces = np.delete(scores[:, student], face)
         face_margin = similarity - float(other_faces.max()) if other_faces.size else 1.0
         return Match(gallery.student_ids[student], similarity, min(student_margin, face_margin),
-                     student_margin, face_margin, candidates=candidates)
+                     student_margin, face_margin, candidates=candidates,
+                     second_best=float(other_students.max()) if other_students.size else None)
 
     def _assign_unique(self, scores: np.ndarray) -> dict[int, int]:
         floor = self._settings.review_threshold
@@ -114,7 +126,13 @@ class RecognitionService:
             reasons = face.issues or (Reason("face_unreadable", QUALITY, "Face could not be read reliably."),)
             return Decision(UNKNOWN, False, False, tuple(reasons))
 
+        if match.invalid_embedding:
+            return Decision(UNKNOWN, False, False, (Reason("embedding_invalid", IDENTITY,
+                            "The model returned an unusable embedding for this face."),))
+
         quality_reasons = list(face.issues) if face.tier != "ok" else []
+        if face.tier != "ok" and not quality_reasons:
+            quality_reasons.append(Reason("face_low_quality_score", QUALITY, "Face quality is below the automatic-confirmation tier."))
         if s.high_requires_good_image and image.status != "good":
             quality_reasons.append(self._image_reason(image))
         quality_passed = not quality_reasons
@@ -134,17 +152,18 @@ class RecognitionService:
     def _identity_reasons(self, match: Match) -> list[Reason]:
         s = self._settings
         found = []
-        if match.similarity < s.high_confidence_threshold:
+        # Written as `not (x >= limit)` so a NaN can never pass.
+        if not match.similarity >= s.high_confidence_threshold:
             found.append(Reason(
                 "similarity_below_high", IDENTITY,
                 f"Match score {match.similarity:.2f} is under the {s.high_confidence_threshold:.2f} needed for automatic confirmation.",
             ))
-        if match.student_margin < s.min_match_margin:
+        if not match.student_margin >= s.min_match_margin:
             found.append(Reason(
                 "close_runner_up", IDENTITY,
                 f"Another student scores within {max(match.student_margin, 0.0):.2f} of this match (needs a gap of {s.min_match_margin:.2f}).",
             ))
-        if match.face_margin < s.min_match_margin:
+        if not match.face_margin >= s.min_match_margin:
             found.append(Reason(
                 "contested_by_other_face", IDENTITY,
                 f"Another face in this photo scores within {max(match.face_margin, 0.0):.2f} for the same student (needs a gap of {s.min_match_margin:.2f}).",

@@ -12,7 +12,10 @@ class FaceRecognizer:
         self._model = recognition_model
         self.crop_size = int(recognition_model.input_size[0])
         dim = recognition_model.output_shape[-1]
-        self.embedding_dim = int(dim) if isinstance(dim, int) else 512
+        if not isinstance(dim, int) or dim <= 0:
+            # Guessing 512 here would let embeddings of an unknown model be compared with stored ones.
+            raise RuntimeError(f"Recognition model reports an unusable output dimension: {dim!r}")
+        self.embedding_dim = int(dim)
 
     def align(self, image: np.ndarray, keypoints: np.ndarray) -> np.ndarray:
         return face_align.norm_crop(image, landmark=keypoints, image_size=self.crop_size)
