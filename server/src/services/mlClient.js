@@ -10,22 +10,59 @@ const imageQualitySchema = z.object({
   message: z.string().nullable().optional()
 });
 
+// Cosine similarity of unit vectors; the ML service rounds to 4 decimals, so allow a hair of slack.
+const similarityValue = z.number().finite().min(-1.001).max(1.001);
+
+const reasonSchema = z.object({ code: z.string(), gate: z.string().optional(), message: z.string().optional() });
+
+const decisionDetailSchema = z.object({
+  identityPassed: z.boolean(),
+  qualityPassed: z.boolean(),
+  imageStatus: z.string().nullable().optional(),
+  reasons: z.array(reasonSchema).default([])
+});
+
+const policySchema = z.object({
+  version: z.number().optional(),
+  highConfidenceThreshold: z.number().finite().optional(),
+  reviewThreshold: z.number().finite().optional(),
+  minMatchMargin: z.number().finite().optional(),
+  requireGoodImageForHigh: z.boolean().optional()
+});
+
 const faceSchema = z
   .object({
     faceId: z.string().min(1),
-    bbox: z.array(z.number()).length(4),
+    bbox: z.array(z.number().finite()).length(4),
     detectionConfidence: z.number().nullable().optional(),
     faceQuality: z.number().nullable().optional(),
     studentId: z.string().min(1).nullable().optional(),
-    similarity: z.number().nullable().optional(),
+    similarity: similarityValue.nullable().optional(),
+    // similarity of the closest OTHER student, and the gap to it (the ML service reports min(student gap, face gap)).
+    secondBestSimilarity: similarityValue.nullable().optional(),
+    matchMargin: z.number().finite().min(-2).max(2).default(0),
     decision: z.enum(Object.values(ML_DECISION)),
+    decisionDetail: decisionDetailSchema.nullable().optional(),
+    candidates: z.array(z.object({ studentId: z.string(), similarity: similarityValue })).default([]),
     qualityTier: z.string().nullable().optional(),
     clusterId: z.string().nullable().optional(),
     embedding: z.array(z.number().finite()).optional()
   })
   .superRefine((face, ctx) => {
-    if (face.decision !== ML_DECISION.UNKNOWN && (!face.studentId || face.similarity == null)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Identified face requires studentId and similarity' });
+    const identified = face.decision === ML_DECISION.HIGH;
+    if (identified && (!face.studentId || face.similarity == null)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A high_confidence face requires studentId and similarity' });
+    }
+    if (face.decision === ML_DECISION.MEDIUM && (!face.studentId || face.similarity == null)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'An identified face requires studentId and similarity' });
+    }
+    // An unknown face must never name a student.
+    if (face.decision === ML_DECISION.UNKNOWN && face.studentId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'An unknown face must not carry a studentId' });
+    }
+    // A needs_review face may legitimately have no studentId (contested); when it has one it needs a score.
+    if (face.decision === ML_DECISION.REVIEW && face.studentId && face.similarity == null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A review face with a studentId requires similarity' });
     }
   });
 
@@ -38,7 +75,13 @@ const summarySchema = z.object({
 
 const perImageQualitySchema = imageQualitySchema.extend({ index: z.number().int().nonnegative() });
 
+const excludedStudentSchema = z.object({ studentId: z.string(), code: z.string().optional(), message: z.string().optional() });
+
 const analysisSchema = z.object({
+  embeddingModel: z.string().min(1),
+  embeddingDim: z.number().int().positive(),
+  excludedStudents: z.array(excludedStudentSchema).default([]),
+  policy: policySchema.nullable().optional(),
   imageQuality: imageQualitySchema,
   imageQualities: z.array(perImageQualitySchema).default([]),
   faces: z.array(faceSchema).default([]),
@@ -49,14 +92,23 @@ const cropResponseSchema = z.object({
   crops: z.array(z.string().nullable())
 });
 
-const embeddingSchema = z.object({
-  embedding: z.array(z.number().finite()).min(1),
-  embeddingModel: z.string().min(1),
-  embeddingDim: z.number().int().positive(),
-  faceQuality: z.number().nullable().optional(),
-  detectionConfidence: z.number().nullable().optional(),
-  bbox: z.array(z.number()).optional()
-});
+const embeddingSchema = z
+  .object({
+    embedding: z.array(z.number().finite()).min(1),
+    embeddingModel: z.string().min(1),
+    embeddingDim: z.number().int().positive(),
+    faceQuality: z.number().nullable().optional(),
+    detectionConfidence: z.number().nullable().optional(),
+    bbox: z.array(z.number()).optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.embedding.length !== value.embeddingDim) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'embedding length does not match embeddingDim' });
+    }
+    // The service returns L2-normalised vectors; a zero or wildly scaled vector would poison the gallery.
+    const norm = Math.sqrt(value.embedding.reduce((sum, item) => sum + item * item, 0));
+    if (!(norm > 0.9 && norm < 1.1)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'embedding is not unit length' });
+  });
 
 const healthSchema = z.object({
   status: z.literal('ok'),

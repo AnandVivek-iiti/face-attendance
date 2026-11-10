@@ -12,7 +12,8 @@ const imageSchema = new mongoose.Schema({
     status: { type: String, default: null },
     blurScore: { type: Number, default: null },
     brightnessScore: { type: Number, default: null },
-    message: { type: String, default: null }
+    message: { type: String, default: null },
+    issues: { type: [String], default: [] }
   }
 });
 

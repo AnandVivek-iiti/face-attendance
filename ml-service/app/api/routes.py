@@ -30,13 +30,18 @@ def require_api_key(request: Request, x_api_key: str | None = Header(default=Non
         raise AppError("UNAUTHORIZED", "Invalid or missing API key", 401)
 
 
-def read_image(upload: UploadFile, settings: Settings):
+def read_bytes(upload: UploadFile, settings: Settings) -> bytes:
     data = upload.file.read(settings.max_image_bytes + 1)
     validate_upload(data, upload.content_type, settings.max_image_bytes)
-    return decode_image(data, settings.max_image_pixels)
+    return data
 
 
-def parse_students(raw: str, settings: Settings, dim: int, allow_empty: bool = False) -> list[EnrolledStudent]:
+def read_image(upload: UploadFile, settings: Settings):
+    return decode_image(read_bytes(upload, settings), settings.max_image_pixels)
+
+
+def parse_students(raw: str, settings: Settings, dim: int, allow_empty: bool = False,
+                   model_name: str | None = None) -> tuple[list[EnrolledStudent], list[dict]]:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError:
@@ -49,6 +54,7 @@ def parse_students(raw: str, settings: Settings, dim: int, allow_empty: bool = F
     if len(payload) > settings.max_students_per_request:
         raise AppError("TOO_MANY_STUDENTS", "Too many students in one request", 413)
     students = []
+    excluded: list[dict] = []
     for item in payload:
         try:
             parsed = StudentIn.model_validate(item)
@@ -57,8 +63,13 @@ def parse_students(raw: str, settings: Settings, dim: int, allow_empty: bool = F
         vectors = parsed.embeddings if parsed.embeddings else ([parsed.embedding] if parsed.embedding else None)
         if not vectors:
             raise AppError("INVALID_STUDENTS", f"Student {parsed.studentId} has no embedding", 422)
+        if model_name and parsed.embeddingModel and parsed.embeddingModel != model_name:
+            # Never compare across models: leave the student out (they can only come back as unknown) and say so.
+            excluded.append({"studentId": parsed.studentId, "code": "EMBEDDING_MODEL_MISMATCH",
+                             "message": f"Embedding produced by {parsed.embeddingModel}; service runs {model_name}"})
+            continue
         students.append(EnrolledStudent(parsed.studentId, to_embedding_matrix(vectors, dim, parsed.studentId)))
-    return students
+    return students, excluded
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -83,15 +94,20 @@ def analyze_classroom(
     settings: Settings = Depends(settings_dep),
 ):
     registry = request.app.state.registry
+    if settings.require_embedding_model and not embeddingModel:
+        raise AppError("EMBEDDING_MODEL_REQUIRED", "embeddingModel must state which model produced the stored embeddings", 422)
     if embeddingModel and embeddingModel != registry.model_name:
         raise AppError("EMBEDDING_MODEL_MISMATCH",
                        f"Stored embeddings were produced by {embeddingModel}; service runs {registry.model_name}", 409)
     if not images or len(images) > settings.max_images_per_request:
         raise AppError("INVALID_IMAGE_COUNT", f"Provide between 1 and {settings.max_images_per_request} images", 422)
-    enrolled = parse_students(students, settings, registry.recognizer.embedding_dim, allow_empty=allowEmptyStudents)
-    decoded = [read_image(upload, settings) for upload in images]
-    return request.app.state.attendance.analyze(
-        decoded, enrolled, uuid.uuid4().hex[:12], include_embeddings=includeEmbeddings
+    enrolled, excluded = parse_students(students, settings, registry.recognizer.embedding_dim,
+                                        allow_empty=allowEmptyStudents, model_name=registry.model_name)
+    if not enrolled and excluded and not allowEmptyStudents:
+        raise AppError("EMBEDDING_MODEL_MISMATCH", "Every supplied embedding was produced by a different model", 409)
+    payloads = [read_bytes(upload, settings) for upload in images]
+    return request.app.state.attendance.analyze_encoded(
+        payloads, enrolled, uuid.uuid4().hex[:12], include_embeddings=includeEmbeddings, excluded=tuple(excluded)
     )
 
 
@@ -118,8 +134,7 @@ def generate_embedding(
     image: UploadFile = File(...),
     settings: Settings = Depends(settings_dep),
 ):
-    decoded = read_image(image, settings)
-    result = request.app.state.reference.generate(decoded)
+    result = request.app.state.reference.generate_from_bytes(read_bytes(image, settings))
     return ReferenceEmbeddingResponse(
         embedding=result.embedding,
         embeddingModel=result.model,

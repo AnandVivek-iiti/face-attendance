@@ -55,7 +55,7 @@ const studentFields = {
   name: text(120),
   department: text(100),
   semester,
-  section
+  section: section.optional()
 };
 
 const createStudent = z.object({ ...studentFields, active: z.boolean().optional() });
@@ -71,6 +71,9 @@ const listStudents = z.object({
   semester: semester.optional(),
   section: section.optional(),
   department: text(100).optional(),
+  // Limit the list to one course's enrolled students (by id, or by course code).
+  courseId: objectId.optional(),
+  courseCode: text(32).optional(),
   active: booleanString.optional(),
   q: text(100).optional()
 });
@@ -122,6 +125,11 @@ const studentProfile = z.object({
 
 const reviewEnrollmentRequest = z.object({
   note: z.string().trim().max(500).optional()
+});
+
+// Add students to a course by roll number.
+const enrollStudents = z.object({
+  rollNumbers: z.array(text(32)).min(1).max(500)
 });
 
 const createSession = z.object({ courseId: objectId, date: dateString.optional() });
@@ -199,6 +207,7 @@ module.exports = {
   updateProfessor,
   studentProfile,
   reviewEnrollmentRequest,
+  enrollStudents,
   createSession,
   updateRecord,
   assignFace,

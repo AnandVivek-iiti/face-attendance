@@ -9,7 +9,8 @@ const studentSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true, maxlength: 120 },
     department: { type: String, required: true, trim: true },
     semester: { type: Number, required: true, min: 1, max: 12 },
-    section: { type: String, required: true, set: upperTrim },
+    // Informational only: course enrollment (CourseEnrollment), not section, decides which professor sees a student.
+    section: { type: String, required: false, set: upperTrim, default: undefined },
     // Legacy filesystem path retained for backward compatibility during migration.
     registeredImage: { type: String, default: null },
     // Current GridFS image plus append-only references to previously registered face photos.
@@ -25,6 +26,8 @@ const studentSchema = new mongoose.Schema(
       }],
       default: []
     },
+    // Small crop from a classroom photo, only for students with no registered photograph (separate GridFS bucket).
+    faceThumbnailFileId: { type: mongoose.Schema.Types.ObjectId, default: null },
     // Reference face vectors accumulated over time.
     faceEmbeddings: { type: [[Number]], select: false, default: [] },
     // The insightface pack that produced faceEmbeddings.
@@ -43,6 +46,10 @@ studentSchema.set('toJSON', {
   transform: (doc, ret) => {
     delete ret.faceEmbeddings;
     delete ret.__v;
+    // Ready-to-use image URLs (auth required); GridFS ids are never exposed as binary data.
+    if (ret.registeredImageFileId) ret.registeredImageUrl = `/api/files/registered-face/${ret._id}`;
+    else if (ret.registeredImage) ret.registeredImageUrl = `/api/files/${ret.registeredImage}`;
+    if (ret.faceThumbnailFileId) ret.thumbnailUrl = `/api/files/face-thumbnail/${ret._id}`;
     return ret;
   }
 });

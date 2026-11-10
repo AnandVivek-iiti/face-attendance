@@ -1,7 +1,11 @@
 const { RECORD_STATUS, AI_DECISION, ML_DECISION } = require('../config/constants');
 
+// Faces arriving here have already passed mlContract.validateAnalysis, so face.decision is the EFFECTIVE decision: it can be weaker
+// than what the ML service said, never stronger. Reconciliation only maps decisions to attendance records.
+
 const isKnownStudentMatch = (face, enrolledCodes) =>
-  Boolean(face.studentId) && enrolledCodes.has(face.studentId) &&
+  Boolean(face.studentId) &&
+  enrolledCodes.has(face.studentId) &&
   [ML_DECISION.HIGH, ML_DECISION.REVIEW, ML_DECISION.MEDIUM].includes(face.decision);
 
 const toEvidence = (imageId, face) => ({
@@ -11,6 +15,12 @@ const toEvidence = (imageId, face) => ({
   similarity: face.similarity ?? null,
   faceQuality: face.faceQuality ?? null,
   detectionConfidence: face.detectionConfidence ?? null,
+  matchMargin: face.matchMargin ?? null,
+  qualityTier: face.qualityTier ?? null,
+  decisionReason: face.reasonCodes && face.reasonCodes.length ? face.reasonCodes.join(',') : null,
+  qualityReasons: ((face.decisionDetail && face.decisionDetail.reasons) || [])
+    .filter((reason) => reason.gate === 'quality')
+    .map((reason) => reason.code),
   decision: face.decision === ML_DECISION.HIGH ? AI_DECISION.HIGH : AI_DECISION.REVIEW
 });
 
@@ -34,7 +44,9 @@ const collectDetections = (enrolledCodes, imageResults) => {
           unknownFaces.push({
             imageId, faceId: face.faceId, bbox: face.bbox,
             similarity: face.similarity ?? null, faceQuality: face.faceQuality ?? null,
-            qualityTier: face.qualityTier ?? null, clusterId: face.clusterId ?? null
+            qualityTier: face.qualityTier ?? null, clusterId: face.clusterId ?? null,
+            decision: face.decision,
+            candidates: face.candidates || []
           });
         }
         continue;
@@ -56,7 +68,9 @@ const buildRecord = (student, evidence) => {
   }
 
   const sorted = [...evidence].sort(compareEvidence);
-  const confirmed = sorted.find((item) => item.decision === AI_DECISION.HIGH);
+  // More than one face claiming the same student breaks the "one student, one face" guarantee: never automatic.
+  const contested = new Set(sorted.map((item) => `${item.imageId}:${item.faceId}`)).size > 1;
+  const confirmed = contested ? undefined : sorted.find((item) => item.decision === AI_DECISION.HIGH);
   const best = confirmed || sorted[0];
   const isPresent = Boolean(confirmed);
   return {

@@ -70,6 +70,47 @@ export default function StudentAttendanceRow({
             <p className="text-sm font-semibold text-ink">{row.name || row.studentId}</p>
             {row.ignored && <p className="text-xs text-muted">Face ignored</p>}
             {row.isAdded && <p className="text-xs text-muted">Added manually</p>}
+            {(row.face || row.evidence?.length > 0) && (
+              <details className="mt-1 max-w-[360px] text-xs" onClick={(event) => event.stopPropagation()}>
+                <summary className="cursor-pointer select-none font-semibold text-primary hover:underline">
+                  Evidence &amp; decision details
+                  {row.evidence?.length > 1 ? ` (${row.evidence.length} observations)` : ''}
+                </summary>
+                <div className="mt-2 space-y-2 rounded-ctl border border-line bg-black/10 p-2 text-muted">
+                  {row.face && (
+                    <div className="space-y-1">
+                      <p><span className="text-ink">Best match:</span> {row.face.decision ?? row.aiResult}</p>
+                      <p><span className="text-ink">Similarity:</span> {percent(row.face.similarity)} · <span className="text-ink">Face quality:</span> {percent(row.face.faceQuality)}</p>
+                      {row.face.matchMargin != null && <p><span className="text-ink">Match margin:</span> {percent(row.face.matchMargin)}</p>}
+                      {row.face.detectionConfidence != null && <p><span className="text-ink">Detection confidence:</span> {percent(row.face.detectionConfidence)}</p>}
+                      {row.face.qualityTier && <p><span className="text-ink">Quality tier:</span> {row.face.qualityTier}</p>}
+                      {row.face.decisionReason && <p><span className="text-ink">Decision reasons:</span> {row.face.decisionReason.split(',').map((reason) => reason.trim().replaceAll('_', ' ')).join(' · ')}</p>}
+                      {row.face.qualityReasons?.length > 0 && <p><span className="text-ink">Quality checks:</span> {row.face.qualityReasons.map((reason) => reason.replaceAll('_', ' ')).join(' · ')}</p>}
+                      {row.face.candidates?.length > 0 && (
+                        <div>
+                          <p className="text-ink">Candidate matches</p>
+                          <ul className="ml-4 list-disc">{row.face.candidates.map((candidate) => <li key={candidate.studentId}>{candidate.studentId}: {percent(candidate.similarity)}</li>)}</ul>
+                        </div>
+                      )}
+                      {row.face.bbox?.length === 4 && <p><span className="text-ink">Face box:</span> {row.face.bbox.join(', ')}</p>}
+                    </div>
+                  )}
+                  {row.evidence?.length > 1 && (
+                    <div className="border-t border-line pt-2">
+                      <p className="mb-1 font-semibold text-ink">All stored observations</p>
+                      <ul className="space-y-1">
+                        {row.evidence.map((item, index) => (
+                          <li key={`${item.imageId}-${item.faceId}-${index}`}>
+                            Photo {item.face?.imageIndex != null ? item.face.imageIndex + 1 : item.imageId}: {item.decision ?? 'unclassified'} · {percent(item.similarity)} similarity · {item.qualityTier ?? 'quality unavailable'}
+                            {item.decisionReason ? ` · ${item.decisionReason.split(',').map((reason) => reason.trim().replaceAll('_', ' ')).join(', ')}` : ''}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
           </div>
         </div>
       </td>

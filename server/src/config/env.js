@@ -31,6 +31,14 @@ const nonNegativeInt = (name, fallback) => {
   return value;
 };
 
+const unitFloat = (name, fallback, { min = 0, max = 1 } = {}) => {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < min || value > max) throw new Error(`${name} must be a number between ${min} and ${max}`);
+  return value;
+};
+
 const booleanFlag = (name, fallback) => {
   const raw = process.env[name];
   if (raw === undefined || raw === '') return fallback;
@@ -94,6 +102,15 @@ module.exports = Object.freeze({
   trustProxy: nonNegativeInt('TRUST_PROXY', 0),
   // Password "first login creates the account" lets anyone register an address they do not own.
   allowSelfRegistration: booleanFlag('ALLOW_SELF_REGISTRATION', !isProduction),
+  // Defence in depth: Node never marks a student Present on the ML service's say-so alone. A "high_confidence" face is
+  // downgraded to review unless its similarity and match margin also clear these floors. The defaults equal the ML service's own
+  // documented HIGH_CONFIDENCE_THRESHOLD / MIN_MATCH_MARGIN. Calibrate them (and the ML values) together with real data.
+  autoPresentMinSimilarity: unitFloat('AUTO_PRESENT_MIN_SIMILARITY', 0.55),
+  autoPresentMinMargin: unitFloat('AUTO_PRESENT_MIN_MARGIN', 0.05),
+  // A professor's face assignment adds that classroom face to the student's reference vectors only when this is true
+  // (a student with no reference vector at all always gets one, otherwise they could never be recognised).
+  assignAppendsEmbedding: booleanFlag('ASSIGN_APPENDS_EMBEDDING', false),
+  assignAppendMinSimilarity: unitFloat('ASSIGN_APPEND_MIN_SIMILARITY', unitFloat('AUTO_PRESENT_MIN_SIMILARITY', 0.55)),
   // Audit trail is off unless explicitly enabled.
   auditLogEnabled: booleanFlag('AUDIT_LOG_ENABLED', false),
   // Optional: only set when "Sign in with Google" should be offered.
@@ -115,5 +132,6 @@ module.exports = Object.freeze({
   brevoApiKey: process.env.BREVO_API_KEY || '',
   // How long a professor invite / sign-in link stays valid.
   emailLinkTtlMinutes: positiveInt('EMAIL_LINK_TTL_MINUTES', 30),
-  storageRoot: path.join(projectRoot, 'storage')
+  // Legacy filesystem storage (attendance photos, temp uploads, old registered photos). Set STORAGE_ROOT to a persistent volume in production.
+  storageRoot: process.env.STORAGE_ROOT ? path.resolve(process.env.STORAGE_ROOT) : path.join(projectRoot, 'storage')
 });

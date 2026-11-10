@@ -8,6 +8,7 @@ const courseService = require('./courseService');
 const recordService = require('./recordService');
 const sessionService = require('./sessionService');
 const studentService = require('./studentService');
+const courseEnrollmentService = require('./courseEnrollmentService');
 const { SESSION_STATUS, RECORD_STATUS, RECORD_SOURCE, AUDIT_ACTIONS } = require('../config/constants');
 
 const findFace = (session, faceId) => {
@@ -30,6 +31,7 @@ const createGeneratedStudent = async (course, name, department) => {
         section: course.section,
         autoEnrolled: true
       });
+      await courseEnrollmentService.enroll(course._id, student._id, 'face_assignment');
       return { student, created: true };
     } catch (error) {
       if (!(error && error.code === 11000)) throw error; // vanishingly rare id clash: retry
@@ -40,13 +42,15 @@ const createGeneratedStudent = async (course, name, department) => {
 
 const resolveStudent = async (course, rollNumber, name, department) => {
   if (!rollNumber) return createGeneratedStudent(course, name, department);
-  const find = () => Student.findOne({ rollNumber, semester: course.semester, section: course.section });
+  // Roll numbers are unique across the institute, so look the student up by roll number alone and enroll them in this course.
+  const find = () => Student.findOne({ rollNumber });
   const existing = await find();
   if (existing) {
     if (!existing.active) {
       existing.active = true;
       await existing.save();
     }
+    await courseEnrollmentService.enroll(course._id, existing._id, 'face_assignment');
     return { student: existing, created: false };
   }
   try {
@@ -59,12 +63,16 @@ const resolveStudent = async (course, rollNumber, name, department) => {
       section: course.section,
       autoEnrolled: !name
     });
+    await courseEnrollmentService.enroll(course._id, student._id, 'face_assignment');
     return { student, created: true };
   } catch (error) {
     // Two requests enrolling the same roll number at once: the loser re-reads.
     if (error && error.code === 11000) {
       const winner = await find();
-      if (winner) return { student: winner, created: false };
+      if (winner) {
+        await courseEnrollmentService.enroll(course._id, winner._id, 'face_assignment');
+        return { student: winner, created: false };
+      }
     }
     throw error;
   }
@@ -101,17 +109,18 @@ const applyAssignment = async (session, course, face, input) => {
   let resolved = null;
   if (!input.rollNumber && face.studentId) {
     // The face is already linked to a roster student: confirming it must not mint a second, auto-generated student.
-    const prior = await Student.findOne({
-      studentId: face.studentId, semester: course.semester, section: course.section, active: true
-    });
-    if (prior) resolved = { student: prior, created: false };
+    const prior = await Student.findOne({ studentId: face.studentId, active: true });
+    if (prior && (await courseEnrollmentService.isEnrolled(course._id, prior._id))) {
+      resolved = { student: prior, created: false };
+    }
   }
   const { student, created } = resolved || (await resolveStudent(course, input.rollNumber, input.name, input.department));
 
-  // Keep several classroom captures per student.
-  await studentService.appendEmbedding(
+  // The professor's assignment is authoritative for ATTENDANCE. Whether the classroom face also becomes a reference vector is a
+  // separate, stricter decision (see decideAssignmentEmbedding), so one misclick cannot poison a student's gallery.
+  await studentService.appendAssignmentEmbedding(
     student,
-    face.embedding,
+    face,
     (session.analysis && session.analysis.embeddingModel) || null
   );
 

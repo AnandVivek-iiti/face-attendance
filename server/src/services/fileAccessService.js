@@ -2,6 +2,7 @@ const AttendanceSession = require('../models/AttendanceSession');
 const EnrollmentRequest = require('../models/EnrollmentRequest');
 const Student = require('../models/Student');
 const Course = require('../models/Course');
+const courseEnrollmentService = require('./courseEnrollmentService');
 const { ROLES } = require('../config/constants');
 
 // Stored names are always `<uuid>.<ext>` (optionally prefixed with an ObjectId), so anything outside this tiny alphabet is not one of ours...
@@ -38,29 +39,23 @@ const canAccess = async (user, relativePath, info = classify(relativePath)) => {
     return Boolean(await Course.exists({ _id: request.courseId, professorId: user._id }));
   }
 
-  // registered-faces: visible to professors who teach the student's cohort.
-  const student = await Student.findOne({ _id: info.ownerId, registeredImage: relativePath })
-    .select('semester section')
-    .lean();
+  // registered-faces: visible to professors with that student enrolled in one of their courses.
+  const student = await Student.findOne({ _id: info.ownerId, registeredImage: relativePath }).select('_id').lean();
   if (!student) return false;
-  return Boolean(
-    await Course.exists({ professorId: user._id, semester: student.semester, section: student.section })
-  );
+  return courseEnrollmentService.professorTeachesStudent(user, student._id);
 };
 
 const canAccessRegisteredFace = async (user, studentRef) => {
   const filter = /^[a-f\d]{24}$/i.test(String(studentRef))
     ? { _id: studentRef }
     : { studentId: String(studentRef) };
-  const student = await Student.findOne(filter).select('_id semester section').lean();
+  const student = await Student.findOne(filter).select('_id').lean();
   if (!student) return false;
   if (user.role === ROLES.ADMIN) return true;
+  // A student may see only their own registered photograph.
+  if (user.role === ROLES.STUDENT) return Boolean(user.studentId) && String(user.studentId) === String(student._id);
   if (user.role !== ROLES.PROFESSOR) return false;
-  return Boolean(await Course.exists({
-    professorId: user._id,
-    semester: student.semester,
-    section: student.section
-  }));
+  return courseEnrollmentService.professorTeachesStudent(user, student._id);
 };
 
 module.exports = { classify, canAccess, canAccessRegisteredFace };

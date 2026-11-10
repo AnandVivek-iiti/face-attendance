@@ -10,7 +10,9 @@
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
     "test": "node --test",
-    "user:create": "node ../scripts/create-user.js"
+    "user:create": "node ../scripts/create-user.js",
+    "enrollments:backfill": "node scripts/backfill-course-enrollments.js",
+    "migrate:registered-faces": "node scripts/migrate-registered-faces-to-gridfs.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

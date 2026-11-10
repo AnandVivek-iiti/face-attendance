@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     inference_queue_timeout: float = 120.0
 
     high_confidence_threshold: float = 0.55
-    review_threshold: float = 0.40
+    review_threshold: float = 0.45
     min_match_margin: float = 0.05
     # Faces smaller than this many pixels are not embedded at all (below it, recognition is meaningless).
     min_embed_face_side: int = 20
@@ -44,10 +44,12 @@ class Settings(BaseSettings):
     max_images_per_request: int = 5
     max_students_per_request: int = 2000
     api_key: str = ""
+    # When true, /analyze-classroom rejects a request that does not state which embedding model produced the gallery.
+    # Leave false only while a client that omits `embeddingModel` is still in use; dimension alone cannot tell two 512-d models apart.
+    require_embedding_model: bool = False
 
     image_min_short_side: int = 320
     image_recommended_short_side: int = 600
-    image_blur_unusable: float = 15.0
     image_blur_poor: float = 100.0
     image_brightness_unusable_low: float = 0.08
     image_brightness_poor_low: float = 0.20

@@ -32,6 +32,8 @@ const face = (value) => ({
   qualityReasons: value.qualityReasons ?? [],
   matchMargin: value.matchMargin ?? null,
   decisionReason: value.decisionReason ?? null,
+  candidates: value.candidates ?? [],
+  secondBestSimilarity: value.secondBestSimilarity ?? null,
   studentId: value.studentId ?? null,
   similarity: value.similarity ?? null,
   decision: value.decision ?? null,
@@ -52,7 +54,8 @@ const image = (value) => ({
           status: value.quality.status,
           blurScore: value.quality.blurScore ?? null,
           brightnessScore: value.quality.brightnessScore ?? null,
-          message: value.quality.message ?? null
+          message: value.quality.message ?? null,
+          issues: value.quality.issues ?? []
         }
       : null,
   faces: []

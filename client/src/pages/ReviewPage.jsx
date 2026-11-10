@@ -378,9 +378,42 @@ export default function ReviewPage() {
     <>
       {header}
 
+      <SessionSummary summary={built.summary} session={session} />
+
+      {alerts.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {alerts.map((item) => (
+            <QualityAlert
+              key={item.index ?? 'session'}
+              quality={item.quality}
+              photoLabel={item.index !== null && session.images.length > 1 ? `Photo ${item.index + 1}` : undefined}
+              onUploadNew={() => navigate(uploadNewHref)}
+            />
+          ))}
+        </div>
+      )}
+
+      {session.warnings?.length > 0 && (
+        <details className="glass mt-4 rounded-panel border border-warn-line">
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-warn">
+            Analysis notes and exclusions ({session.warnings.length})
+          </summary>
+          <ul className="space-y-2 border-t border-line px-4 py-3 text-xs text-muted">
+            {session.warnings.map((warning, index) => (
+              <li key={`${warning.type ?? 'warning'}-${index}`}>
+                <span className="font-semibold text-ink">{String(warning.type ?? 'Note').replaceAll('_', ' ')}:</span>{' '}
+                {warning.message ?? warning.code ?? 'Additional analysis information'}
+                {warning.studentIds?.length > 0 ? ` · Students: ${warning.studentIds.join(', ')}` : ''}
+                {warning.students?.length > 0 ? ` · ${warning.students.map((item) => item.studentId ?? item.code).join(', ')}` : ''}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {!readOnly && built.summary.unmatched > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-panel border border-primary bg-primary-soft px-4 py-3">
-          <UserPlus size={18} className="text-primary" aria-hidden="true" />
+        <div className="mt-4 flex flex-wrap items-center gap-3 rounded-panel border border-primary bg-primary-soft px-4 py-3">
+          <UserPlus size={18} className="shrink-0 text-primary" aria-hidden="true" />
           <p className="min-w-52 flex-1 text-sm text-ink">
             <span className="font-semibold">
               {built.summary.unmatched} {built.summary.unmatched === 1 ? 'face' : 'faces'} still {built.summary.unmatched === 1 ? 'needs' : 'need'} an ID.
@@ -395,45 +428,34 @@ export default function ReviewPage() {
         </div>
       )}
 
-      {alerts.length > 0 && (
-        <div className="mb-4 space-y-3">
-          {alerts.map((item) => (
-            <QualityAlert
-              key={item.index ?? 'session'}
-              quality={item.quality}
-              photoLabel={item.index !== null && session.images.length > 1 ? `Photo ${item.index + 1}` : undefined}
-              onUploadNew={() => navigate(uploadNewHref)}
-            />
-          ))}
+      <details open className="glass mt-4 rounded-panel border border-line">
+        <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm font-semibold text-ink marker:hidden">
+          <span className="inline-flex items-center gap-2"><Camera size={16} className="text-primary" /> Classroom photographs and face locations</span>
+          <span className="text-xs font-normal text-muted">{session.images.length} {session.images.length === 1 ? 'photo' : 'photos'} · {built.faces.length} detected faces</span>
+        </summary>
+        <div className="border-t border-line p-3 sm:p-4">
+          <ImageViewer
+            images={session.images}
+            sizes={sizes}
+            faces={built.faces}
+            activeIndex={activeIndex}
+            onChangeIndex={setActiveIndex}
+            selectedKey={selectedFaceKey}
+            onSelectFace={handlers.onSelectFace}
+            onUploadNew={() => navigate(uploadNewHref)}
+          />
         </div>
-      )}
-
-      <SessionSummary summary={built.summary} />
+      </details>
 
       {built.rows.length === 0 ? (
-        <Card className="mt-5">
+        <Card className="mt-4">
           <EmptyState
             title="No enrolled students found"
             description="The server returned no attendance records for this session."
           />
         </Card>
       ) : (
-        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(340px,5fr)_7fr]">
-          <div className="xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)] xl:self-start xl:overflow-y-auto">
-            <Card title="Classroom photographs">
-              <ImageViewer
-                images={session.images}
-                sizes={sizes}
-                faces={built.faces}
-                activeIndex={activeIndex}
-                onChangeIndex={setActiveIndex}
-                selectedKey={selectedFaceKey}
-                onSelectFace={handlers.onSelectFace}
-                onUploadNew={() => navigate(uploadNewHref)}
-              />
-            </Card>
-          </div>
-
+        <div className="mt-4">
           <ReviewPanel
             review={built}
             readOnly={readOnly}
@@ -447,7 +469,6 @@ export default function ReviewPage() {
           />
         </div>
       )}
-
       <ChangeStudentDialog
         open={dialog?.type === 'change'}
         face={dialog?.face}

@@ -21,13 +21,13 @@ If `pip install insightface` fails to compile on Windows, install Microsoft C++ 
 
 ## Endpoints
 
-| method | path | purpose |
-|---|---|---|
-| GET | `/health` | model name, embedding dimension, active ONNX providers |
-| POST | `/generate-embedding` | one reference image in, one embedding out (registration) |
-| POST | `/analyze-classroom` | classroom images plus enrolled embeddings in, decisions out |
+| method | path                  | purpose                                                     |
+| ------ | --------------------- | ----------------------------------------------------------- |
+| GET    | `/health`             | model name, embedding dimension, active ONNX providers      |
+| POST   | `/generate-embedding` | one reference image in, one embedding out (registration)    |
+| POST   | `/analyze-classroom`  | classroom images plus enrolled embeddings in, decisions out |
 
-Errors use `{"error": {"code": "...", "message": "..."}}`. When `API_KEY` is set, send it as `X-API-Key`.
+Errors use `{"error": {"code": "...", "message": "..."}}`. `API_KEY` is mandatory (the service refuses to start without it); send it as `X-API-Key` on every endpoint except `/health`.
 
 ### POST /analyze-classroom
 
@@ -35,7 +35,8 @@ Errors use `{"error": {"code": "...", "message": "..."}}`. When `API_KEY` is set
 
 - `images`: 1 to `MAX_IMAGES_PER_REQUEST` files (JPEG, PNG, WebP)
 - `students`: JSON array, each item `{"studentId": "...", "embedding": [512 floats]}` or `{"studentId": "...", "embeddings": [[...], [...]]}`
-- `embeddingModel` (optional): rejected with 409 if it differs from the loaded model
+- `embeddingModel` (optional, mandatory when `REQUIRE_EMBEDDING_MODEL=true`): rejected with 409 if it differs from the loaded model
+- per-student `embeddingModel` (optional, inside `students`): a student whose model differs is left out of matching and listed in `excludedStudents`; embeddings of different models are never compared
 
 ```
 curl -X POST http://localhost:8000/analyze-classroom \
@@ -49,7 +50,10 @@ Response fields follow the agreed contract. Notes:
 
 - `summary.detectedFaces` always equals `highConfidence + needsReview + unknown` and counts faces in `faces`.
 - With several images, `faceId` is `img<N>_face_<NNN>`; with one image it is `face_<NNN>`. `bbox` refers to that image.
-- A student appears at most once. The strongest observation wins (decision rank, then similarity weighted by face quality).
+- A student appears at most once per request, across all images. The strongest observation wins (decision rank, then similarity weighted by face quality); the others are dropped and counted in `duplicateObservations`.
+- The response states `embeddingModel` and `embeddingDim`; each face carries `secondBestSimilarity` (null when only one student is enrolled). `excludedStudents` lists students skipped for a model mismatch.
+- A `needs_review` face can have `studentId: null` (contested by a stronger face); use `candidates`.
+- A face whose embedding is non-finite or zero is `unknown` with reason `embedding_invalid`.
 - `similarity` is `0.0` for faces rejected on quality before embedding.
 - An unusable image returns `status: "unusable"`, a message, empty `faces` and zero counts.
 - Several images aggregate to `unusable` only if all are; skipped images downgrade the status to `poor`.
@@ -93,6 +97,7 @@ gcloud run deploy face-attendance-ml \
 ```
 
 Then point the Node server at the printed URL:
+
 - `ML_SERVICE_URL=https://face-attendance-ml-<hash>-<region>.run.app`
 - `ML_API_KEY=<value>` (same as `API_KEY`)
 

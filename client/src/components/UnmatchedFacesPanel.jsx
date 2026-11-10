@@ -35,6 +35,17 @@ export default function UnmatchedFacesPanel({ faces, readOnly, imageById, sizes,
                 {matchNote(face) && <span className="block text-xs text-muted">{matchNote(face)}</span>}
               </span>
             </button>
+            <details className="min-w-0 flex-1 basis-full pl-14 text-xs text-muted sm:basis-auto sm:pl-0">
+              <summary className="cursor-pointer font-semibold text-primary hover:underline">Why it was not matched</summary>
+              <div className="mt-1 space-y-1 rounded-ctl border border-line bg-black/10 p-2">
+                {face.decisionReason && <p>Decision: {face.decisionReason.split(',').map((reason) => reason.trim().replaceAll('_', ' ')).join(' · ')}</p>}
+                {face.qualityReasons?.length > 0 && <p>Quality checks: {face.qualityReasons.map((reason) => reason.replaceAll('_', ' ')).join(' · ')}</p>}
+                {face.qualityTier && <p>Quality tier: {face.qualityTier}</p>}
+                {face.matchMargin != null && <p>Match margin: {Math.round(face.matchMargin * 100)}%</p>}
+                {face.candidates?.length > 0 && <p>Candidate matches: {face.candidates.map((candidate) => `${candidate.studentId} (${Math.round(candidate.similarity * 100)}%)`).join(', ')}</p>}
+                {face.clusterId && <p>Unknown-face cluster: {face.clusterId}</p>}
+              </div>
+            </details>
             <ConfidenceBadge decision={face.decision} similarity={face.similarity} showScore />
             {!readOnly && (
               <div className="ml-auto flex gap-2">

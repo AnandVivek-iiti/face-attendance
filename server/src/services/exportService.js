@@ -1,5 +1,6 @@
 const AttendanceSession = require('../models/AttendanceSession');
 const AttendanceRecord = require('../models/AttendanceRecord');
+const courseEnrollmentService = require('./courseEnrollmentService');
 const Student = require('../models/Student');
 const AppError = require('../utils/AppError');
 const courseService = require('./courseService');
@@ -114,13 +115,7 @@ const exportAllCsv = async (user) => {
     }
 
     // Fill every enrolled student, including those with no record at all (all-absent).
-    const enrolled = await Student.find({
-      semester: course.semester,
-      section: course.section,
-      active: true
-    })
-      .sort({ rollNumber: 1 })
-      .lean();
+    const enrolled = await courseEnrollmentService.listRoster(course);
     for (const student of enrolled) {
       if (!students.has(student.rollNumber)) {
         students.set(student.rollNumber, { name: student.name, byDate: new Map() });

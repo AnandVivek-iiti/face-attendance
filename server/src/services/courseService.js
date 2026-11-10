@@ -7,6 +7,8 @@ const authService = require('./authService');
 const emailService = require('./emailService');
 const { toObjectId } = require('../utils/objectId');
 const AttendanceSession = require('../models/AttendanceSession');
+const CourseEnrollment = require('../models/CourseEnrollment');
+const courseEnrollmentService = require('./courseEnrollmentService');
 const { ROLES, AUDIT_ACTIONS } = require('../config/constants');
 
 const getById = async (id) => {
@@ -23,11 +25,7 @@ const assertCanView = (user, course) => {
 
 const withEnrolledCount = async (course, { includeProfessorEmail = true } = {}) => {
   const [enrolledCount, professor] = await Promise.all([
-    Student.countDocuments({
-      semester: course.semester,
-      section: course.section,
-      active: true
-    }),
+    courseEnrollmentService.countActive(course._id),
     course.professorId ? User.findById(course.professorId).select('name email').lean() : null
   ]);
   return {
@@ -102,6 +100,7 @@ const remove = async (id, actor) => {
     });
   }
   await course.deleteOne();
+  await CourseEnrollment.deleteMany({ courseId: course._id });
   if (actor) {
     await auditService.record(
       auditService.userEntry(actor, {

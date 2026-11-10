@@ -136,6 +136,7 @@ export function normalizeQuality(raw) {
     blurScore: raw?.blurScore ?? null,
     brightnessScore: raw?.brightnessScore ?? null,
     message: raw?.message ?? null,
+    issues: raw?.issues ?? [],
   };
 }
 
@@ -152,7 +153,10 @@ function normalizeFace(face, position, imageIndex, imageId) {
     qualityTier: face.qualityTier ?? null,
     qualityReasons: face.qualityReasons ?? [],
     matchMargin: face.matchMargin ?? null,
+    secondBestSimilarity: face.secondBestSimilarity ?? null,
     decisionReason: face.decisionReason ?? null,
+    candidates: face.candidates ?? [],
+    clusterId: face.clusterId ?? null,
     studentId: face.studentId ?? null,
     similarity: face.similarity ?? null,
     decision: face.decision ?? DECISION.UNKNOWN,
@@ -201,6 +205,7 @@ function normalizeRecord(raw) {
     status: present,
     source: raw.source,
     faceKey: raw.faceId && raw.imageId ? `${raw.imageId}:${raw.faceId}` : raw.faceKey ?? null,
+    evidence: (raw.evidence ?? []).map((item) => ({ ...item, faceKey: item.imageId && item.faceId ? `${item.imageId}:${item.faceId}` : null })),
     ignored: Boolean(raw.ignored),
   };
 }
@@ -232,7 +237,16 @@ export function normalizeSession(raw = {}) {
     images,
     imageQuality,
     records,
-    warnings: raw.warnings ?? [],
+    warnings: raw.warnings ?? raw.analysis?.warnings ?? [],
+    analysisSummary: raw.analysis?.summary ?? null,
+    imageCount: raw.imageCount ?? images.length,
+    createdAt: raw.createdAt ?? null,
+    updatedAt: raw.updatedAt ?? null,
+    professorId: raw.professorId ?? null,
+    totalStudents: raw.totalStudents ?? null,
+    presentCount: raw.presentCount ?? null,
+    absentCount: raw.absentCount ?? null,
+    needsReviewCount: raw.needsReviewCount ?? null,
     errorMessage: raw.failure?.message ?? raw.errorMessage ?? raw.error ?? null,
     finalizedAt: raw.finalizedAt ?? null,
   };

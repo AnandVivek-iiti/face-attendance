@@ -5,6 +5,7 @@ const courseService = require('./courseService');
 const auditService = require('./auditService');
 const sessionService = require('./sessionService');
 const studentService = require('./studentService');
+const courseEnrollmentService = require('./courseEnrollmentService');
 const presenters = require('../utils/presenters');
 const { RECORD_STATUS, RECORD_SOURCE, SESSION_STATUS, AUDIT_ACTIONS } = require('../config/constants');
 
@@ -87,7 +88,7 @@ const updateRecord = async (sessionId, studentRef, user, body) => {
   if (!record) {
     // A student added to the roster during review has no record yet.
     const course = await courseService.getById(session.courseId);
-    if (!student.active || student.semester !== course.semester || student.section !== course.section) {
+    if (!student.active || !(await courseEnrollmentService.isEnrolled(course._id, student._id))) {
       throw new AppError('That student is not enrolled in this course', 409, { code: 'STUDENT_NOT_IN_COURSE' });
     }
     record = new AttendanceRecord({

@@ -16,7 +16,8 @@ const courseSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-courseSchema.index({ courseCode: 1, semester: 1, section: 1 }, { unique: true });
+// Course code is the identity; a section only distinguishes parallel offerings of the same code.
+courseSchema.index({ courseCode: 1, section: 1 }, { unique: true });
 
 courseSchema.set('toJSON', {
   transform: (doc, ret) => {

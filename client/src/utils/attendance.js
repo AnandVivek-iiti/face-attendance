@@ -70,6 +70,7 @@ export function buildReview(session, state = emptyReviewState) {
       aiResult,
       similarity: face?.similarity ?? null,
       faceQuality: face?.faceQuality ?? null,
+      evidence: (record.evidence ?? []).map((item) => ({ ...item, face: item.faceKey ? faceByKey.get(item.faceKey) ?? null : null })),
       status: override?.status ?? baseStatus,
       source,
       reviewed,

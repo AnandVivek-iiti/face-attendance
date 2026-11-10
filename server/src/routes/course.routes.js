@@ -16,6 +16,15 @@ router.get('/available', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR, ROLES.STUDE
 router.get('/professors', authorizeRole(ROLES.ADMIN), controller.listProfessors);
 router.post('/', authorizeRole(ROLES.ADMIN), validate({ body: schemas.createCourse }), controller.create);
 router.get('/:id', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR), controller.getOne);
+// Course roster: the course's owner (or an admin) manages who is enrolled.
+router.get('/:id/students', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR), controller.listStudents);
+router.post(
+  '/:id/students',
+  authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR),
+  validate({ body: schemas.enrollStudents }),
+  controller.enrollStudents
+);
+router.delete('/:id/students/:studentId', authorizeRole(ROLES.ADMIN, ROLES.PROFESSOR), controller.removeStudent);
 router.put('/:id', authorizeRole(ROLES.ADMIN), validate({ body: schemas.updateCourse }), controller.update);
 router.delete('/:id', authorizeRole(ROLES.ADMIN), controller.remove);
 

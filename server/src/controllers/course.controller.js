@@ -1,5 +1,6 @@
 const asyncHandler = require('../utils/asyncHandler');
 const courseService = require('../services/courseService');
+const courseEnrollmentService = require('../services/courseEnrollmentService');
 const { success } = require('../utils/response');
 
 const list = asyncHandler(async (req, res) => success(res, await courseService.list(req.user)));
@@ -20,6 +21,18 @@ const update = asyncHandler(async (req, res) =>
 
 const remove = asyncHandler(async (req, res) =>
   success(res, await courseService.remove(req.params.id, req.user))
+);
+
+const listStudents = asyncHandler(async (req, res) =>
+  success(res, await courseEnrollmentService.listCourseStudents(req.user, req.params.id))
+);
+
+const enrollStudents = asyncHandler(async (req, res) =>
+  success(res, await courseEnrollmentService.enrollByRollNumbers(req.user, req.params.id, req.body.rollNumbers))
+);
+
+const removeStudent = asyncHandler(async (req, res) =>
+  success(res, await courseEnrollmentService.removeFromCourse(req.user, req.params.id, req.params.studentId))
 );
 
 const listProfessors = asyncHandler(async (req, res) => success(res, await courseService.listProfessors()));
@@ -51,6 +64,9 @@ module.exports = {
   listAll,
   create,
   getOne,
+  listStudents,
+  enrollStudents,
+  removeStudent,
   update,
   remove,
   listProfessors,

@@ -30,7 +30,7 @@ def test_equal_decisions_prefer_higher_evidence():
 
 def test_summary_is_consistent_and_schema_stable():
     quality = ImageQuality("good", 184.5, 0.78, None)
-    body = AttendanceService._response(quality, [obs("face_001", 0, "A", 0.9, "high_confidence")])
+    body = _resp(quality, [obs("face_001", 0, "A", 0.9, "high_confidence")])
     assert set(body) == {"imageQuality", "imageQualities", "faces", "summary"}
     assert set(body["faces"][0]) == {"faceId", "bbox", "detectionConfidence", "faceQuality", "studentId", "similarity", "decision"}
     summary = body["summary"]
@@ -38,5 +38,14 @@ def test_summary_is_consistent_and_schema_stable():
 
 
 def test_unusable_response_has_no_faces():
-    body = AttendanceService._response(ImageQuality("unusable", 3.0, 0.5, "Image is too blurry to reliably identify students."), [])
+    body = _resp(ImageQuality("unusable", 3.0, 0.5, "Image is too blurry to reliably identify students."), [])
     assert body["faces"] == [] and body["summary"]["detectedFaces"] == 0
+
+def _resp(*args, **kwargs):
+    # _response reads settings and model info from the service instance, so build a bare one.
+    from app.config import Settings
+    svc = object.__new__(AttendanceService)
+    svc._settings = Settings()
+    svc._model_name = "buffalo_l"
+    svc._embedding_dim = 512
+    return svc._response(*args, **kwargs)

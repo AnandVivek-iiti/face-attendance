@@ -7,6 +7,8 @@ const mlClient = require('./mlClient');
 const recordService = require('./recordService');
 const reconciliationService = require('./reconciliationService');
 const sessionService = require('./sessionService');
+const env = require('../config/env');
+const { validateAnalysis } = require('./mlContract');
 const storageService = require('./storageService');
 const { createLimiter } = require('../utils/limiter');
 const studentService = require('./studentService');
@@ -49,7 +51,8 @@ const qualityOf = (value) => ({
   status: value.status,
   blurScore: value.blurScore ?? null,
   brightnessScore: value.brightnessScore ?? null,
-  message: value.message ?? null
+  message: value.message ?? null,
+  issues: value.issues ?? []
 });
 
 const describeImage = (image) => ({
@@ -90,12 +93,10 @@ const backfillMissingEmbeddings = async (enrolled, expectedModel, expectedDimens
     await Promise.all(
       needsRebuild.slice(i, i + CONCURRENCY).map(async (student) => {
         try {
-          if (!student.registeredImage) throw new Error('No registered photograph is available');
-          const buffer = await storageService.readFile(student.registeredImage);
-          const filename = student.registeredImage.split('/').pop();
-          const lower = filename.toLowerCase();
-          const mimeType = lower.endsWith('.png') ? 'image/png' : lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
-          const result = await mlClient.generateEmbedding({ buffer, filename, mimeType });
+          if (!student.registeredImageFileId && !student.registeredImage) throw new Error('No registered photograph is available');
+          // GridFS is the source of truth; the legacy filesystem path is only a fallback until the migration has run.
+          const photo = await studentService.readRegisteredPhoto(student);
+          const result = await mlClient.generateEmbedding({ buffer: photo.buffer, filename: photo.filename, mimeType: photo.mimeType });
           if (result.embeddingModel !== expectedModel || result.embeddingDim !== expectedDimension || !validVector(result.embedding, expectedDimension)) {
             throw new Error('Generated embedding does not match the active ML model');
           }
@@ -174,11 +175,7 @@ const auditActionFor = (status) => {
 
 const runAnalysis = async (session, user) => {
   const course = await courseService.getById(session.courseId);
-  // The roster is the students already enrolled in this course's semester/section.
-  if (!course.section) {
-    // Student.section is required, so a course without one matches nobody and every face would look like a new student.
-    throw new AppError('This course has no section, so its roster cannot be determined', 409, { code: 'COURSE_SECTION_MISSING' });
-  }
+  // The roster is the students enrolled in this course; a section is not required.
   const enrolled = await studentService.listEnrolledForCourse(course);
   const mlHealth = await mlClient.getHealth();
   const embeddingRepair = await backfillMissingEmbeddings(enrolled, mlHealth.embeddingModel, mlHealth.embeddingDim);
@@ -191,7 +188,7 @@ const runAnalysis = async (session, user) => {
     })
   );
 
-  const response = await mlClient.analyzeClassroom({
+  const rawResponse = await mlClient.analyzeClassroom({
     images: images.map((entry) => ({
       buffer: entry.buffer,
       filename: entry.image.filename,
@@ -203,6 +200,17 @@ const runAnalysis = async (session, user) => {
     // A first session has no roster yet; still run detection so the professor can build the list by assigning each detected face.
     allowEmptyStudents: true
   });
+
+  // One authority for "may this be trusted": structural problems reject the whole analysis, a high_confidence that fails a check is
+  // downgraded to review. Nothing here can make a decision stronger than the ML service made it.
+  const checked = validateAnalysis(rawResponse, {
+    model: mlHealth.embeddingModel,
+    dim: mlHealth.embeddingDim,
+    galleryIds: gallery.map((entry) => entry.studentId),
+    imageCount: images.length,
+    floors: { minSimilarity: env.autoPresentMinSimilarity, minMargin: env.autoPresentMinMargin }
+  });
+  const response = { ...rawResponse, faces: checked.faces };
 
   const perImageQuality = response.imageQualities || [];
   const facesByImage = groupFacesByImage(response.faces, images);
@@ -242,7 +250,13 @@ const runAnalysis = async (session, user) => {
       faceQuality: face.faceQuality ?? null,
       studentId: face.studentId ?? null,
       similarity: face.similarity ?? null,
+      secondBestSimilarity: face.secondBestSimilarity ?? null,
+      matchMargin: face.matchMargin ?? null,
       decision: face.decision,
+      mlDecision: face.mlDecision,
+      decisionReason: face.reasonCodes && face.reasonCodes.length ? face.reasonCodes.join(',') : null,
+      qualityReasons: ((face.decisionDetail && face.decisionDetail.reasons) || []).filter((r) => r.gate === 'quality').map((r) => r.code),
+      candidates: face.candidates || [],
       qualityTier: face.qualityTier ?? null,
       clusterId: face.clusterId ?? null,
       embedding: face.embedding ?? null
@@ -253,6 +267,12 @@ const runAnalysis = async (session, user) => {
     ...unusable.map((entry) => ({ type: 'image_unusable', ...describeImage(entry.image) })),
     ...(studentsWithoutEmbedding.length
       ? [{ type: 'missing_embeddings', message: 'Some enrolled students have no compatible face reference for the active ML model', studentIds: studentsWithoutEmbedding }]
+      : []),
+    ...(checked.excludedStudents.length
+      ? [{ type: 'ml_excluded_students', message: 'The ML service left some students out of matching (embedding model mismatch)', students: checked.excludedStudents }]
+      : []),
+    ...(checked.downgraded
+      ? [{ type: 'confidence_downgraded', message: `${checked.downgraded} high-confidence match(es) failed a safety check and were sent to review instead of being marked Present` }]
       : []),
     ...(embeddingRepair.failed.length
       ? [{ type: 'embedding_repair_failed', message: 'Some face references could not be rebuilt; those students were excluded from automatic recognition', students: embeddingRepair.failed }]
@@ -267,6 +287,7 @@ const runAnalysis = async (session, user) => {
     analysis: {
       analyzedAt: new Date(),
       embeddingModel: embeddingModel || null,
+      summary: response.summary ?? null,
       imageResults: usable.map((entry) => ({
         imageId: entry.image._id,
         imageQuality: entry.image.quality,

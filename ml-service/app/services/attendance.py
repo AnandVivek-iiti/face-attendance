@@ -1,5 +1,4 @@
 import logging
-import threading
 from dataclasses import dataclass
 
 import numpy as np
@@ -22,6 +21,7 @@ except ModuleNotFoundError:  # optional debug helper; keep the service importabl
         def save(self, *args, **kwargs) -> None:
             pass
 from app.utils.embedding_utils import EnrolledStudent, build_gallery
+from app.utils.image_utils import decode_image
 
 logger = logging.getLogger(__name__)
 DECISION_RANK = {HIGH: 0, REVIEW: 1, UNKNOWN: 2}
@@ -44,6 +44,7 @@ class Observation:
     detail: Decision | None = None
     candidates: tuple[Candidate, ...] = ()
     cluster_id: str | None = None
+    second_best: float | None = None
 
     @property
     def evidence(self) -> float:
@@ -53,6 +54,9 @@ class Observation:
 class AttendanceService:
     def __init__(self, registry: ModelRegistry, settings: Settings):
         self._settings = settings
+        self._registry = registry
+        self._model_name = registry.model_name
+        self._embedding_dim = registry.recognizer.embedding_dim
         self._detection = DetectionService(
             registry.detector,
             tiling=settings.detection_tiling,
@@ -61,38 +65,45 @@ class AttendanceService:
         )
         self._recognition = RecognitionService(registry.recognizer, settings)
         self._crops = FaceCropWriter(settings.save_face_crops, settings.crop_path)
-        self._gate = threading.BoundedSemaphore(settings.max_concurrent_inferences)
 
     def analyze(self, images: list[np.ndarray], students: list[EnrolledStudent], request_id: str,
-                include_embeddings: bool = False) -> dict:
+                include_embeddings: bool = False, excluded: tuple[dict, ...] = ()) -> dict:
+        with self._registry.inference_slot():
+            return self._analyze(images, students, request_id, include_embeddings, excluded)
+
+    def analyze_encoded(self, payloads: list[bytes], students: list[EnrolledStudent], request_id: str,
+                        include_embeddings: bool = False, excluded: tuple[dict, ...] = ()) -> dict:
+        """Decode inside the inference slot: decoded pixels (up to MAX_IMAGE_PIXELS each) are the largest memory
+        cost, and decoding before the slot let concurrent requests all hold them at once."""
+        with self._registry.inference_slot():
+            images = [decode_image(data, self._settings.max_image_pixels) for data in payloads]
+            return self._analyze(images, students, request_id, include_embeddings, excluded)
+
+    def _analyze(self, images: list[np.ndarray], students: list[EnrolledStudent], request_id: str,
+                 include_embeddings: bool, excluded: tuple[dict, ...]) -> dict:
         qualities = [assess_image(image, self._settings) for image in images]
         usable = [i for i, quality in enumerate(qualities) if quality.status != "unusable"]
         image_quality = self._aggregate_image_quality(qualities)
         if not usable:
-            return self._response(image_quality, [], include_embeddings, qualities)
+            return self._response(image_quality, [], include_embeddings, qualities, excluded=excluded)
 
         gallery = build_gallery(students)
         multi = len(images) > 1
         observations: list[Observation] = []
-        if not self._gate.acquire(timeout=self._settings.inference_queue_timeout):
-            raise AppError("ML_BUSY", "The recognition service is busy. Try again shortly.", 503)
-        try:
-            for index in usable:
-                observations.extend(
-                    self._analyze_image(images[index], index, multi, gallery, request_id, qualities[index],
-                                        include_embeddings)
-                )
-        finally:
-            self._gate.release()
+        for index in usable:
+            observations.extend(
+                self._analyze_image(images[index], index, multi, gallery, request_id, qualities[index],
+                                    include_embeddings)
+            )
 
         for observation in observations:
             self._save_crop(request_id, images[observation.image_index], observation)
         faces = self._deduplicate(observations)
         self._cluster_unknowns(faces)
-        logger.info("request=%s images=%d usable=%d faces=%d returned=%d",
-                    request_id, len(images), len(usable), len(observations), len(faces))
+        logger.info("request=%s images=%d usable=%d faces=%d returned=%d excluded_students=%d",
+                    request_id, len(images), len(usable), len(observations), len(faces), len(excluded))
         return self._response(image_quality, faces, include_embeddings, qualities,
-                              duplicates=len(observations) - len(faces))
+                              duplicates=len(observations) - len(faces), excluded=excluded)
 
     def _analyze_image(self, image: np.ndarray, index: int, multi: bool, gallery, request_id: str,
                        image_quality: ImageQuality, include_embeddings: bool = False) -> list[Observation]:
@@ -126,6 +137,7 @@ class AttendanceService:
                 match.similarity if match is not None else 0.0, detail, width, height,
                 embedding_by_id.get(face_id), match.margin if match is not None else 0.0,
                 match.candidates if match is not None else (),
+                match.second_best if match is not None else None,
             ))
         return observations
 
@@ -133,7 +145,7 @@ class AttendanceService:
     def _observation(face_id: str, index: int, face, quality: FaceQuality, student_id: str | None,
                      similarity: float, detail: Decision, width: int, height: int,
                      embedding: np.ndarray | None = None, match_margin: float = 0.0,
-                     candidates: tuple[Candidate, ...] = ()) -> Observation:
+                     candidates: tuple[Candidate, ...] = (), second_best: float | None = None) -> Observation:
         return Observation(
             face_id=face_id,
             image_index=index,
@@ -149,21 +161,24 @@ class AttendanceService:
             quality=quality,
             detail=detail,
             candidates=candidates,
+            second_best=None if second_best is None else round(float(second_best), 4),
         )
 
     @staticmethod
     def _deduplicate(observations: list[Observation]) -> list[Observation]:
-        best_by_image_student: dict[tuple[int, str], Observation] = {}
+        best_by_student: dict[str, Observation] = {}
         for observation in observations:
             if observation.student_id is None:
                 continue
-            key = (observation.image_index, observation.student_id)
-            current = best_by_image_student.get(key)
+            # One entry per student for the whole request (matches the documented contract); within a single image
+            # the roster assignment already guarantees this, so the real work is across images.
+            key = observation.student_id
+            current = best_by_student.get(key)
             if current is None or (DECISION_RANK[observation.decision], -observation.evidence) < (
                 DECISION_RANK[current.decision], -current.evidence
             ):
-                best_by_image_student[key] = observation
-        kept_ids = {id(observation) for observation in best_by_image_student.values()}
+                best_by_student[key] = observation
+        kept_ids = {id(observation) for observation in best_by_student.values()}
         kept = [o for o in observations if o.student_id is None or id(o) in kept_ids]
         return sorted(kept, key=lambda o: (o.image_index, o.face_id))
 
@@ -216,7 +231,8 @@ class AttendanceService:
         }
 
     def _response(self, image_quality: ImageQuality, faces: list[Observation], include_embeddings: bool = False,
-                  qualities: list[ImageQuality] | None = None, duplicates: int = 0) -> dict:
+                  qualities: list[ImageQuality] | None = None, duplicates: int = 0,
+                  excluded: tuple[dict, ...] = ()) -> dict:
         counts = {HIGH: 0, REVIEW: 0, UNKNOWN: 0}
         review_reasons: dict[str, int] = {}
         for face in faces:
@@ -253,6 +269,7 @@ class AttendanceService:
                 "faceQuality": f.face_quality,
                 "qualityTier": f.quality_tier,
                 "matchMargin": f.match_margin,
+                "secondBestSimilarity": f.second_best,
                 "clusterId": f.cluster_id,
                 "studentId": f.student_id,
                 "similarity": f.similarity,
@@ -265,6 +282,9 @@ class AttendanceService:
             return payload
 
         return {
+            "embeddingModel": self._model_name,
+            "embeddingDim": self._embedding_dim,
+            "excludedStudents": list(excluded),
             "policy": self._policy(),
             "imageQuality": {
                 "status": image_quality.status,

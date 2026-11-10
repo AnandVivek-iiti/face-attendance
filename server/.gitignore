@@ -1,6 +1,18 @@
-
-!.gitignore
-!*/
-!*/.gitkeep
-node_modules
+node_modules/
 .env
+.env.*
+!.env.example
+npm-debug.log*
+
+# Student photographs and uploads must never be committed
+storage/*
+!storage/.gitkeep
+storage/**/*
+!storage/**/.gitkeep
+migration-reports/
+
+# Local data and archives
+*.zip
+*.dump
+*.log
+.DS_Store

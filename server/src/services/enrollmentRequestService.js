@@ -7,6 +7,7 @@ const auditService = require('./auditService');
 const mlClient = require('./mlClient');
 const storageService = require('./storageService');
 const studentService = require('./studentService');
+const courseEnrollmentService = require('./courseEnrollmentService');
 const { ENROLLMENT_REQUEST_STATUS, AUDIT_ACTIONS } = require('../config/constants');
 
 const findOwnedRequest = async (id, user) => {
@@ -52,7 +53,8 @@ const embedImage = async (imagePath) => {
   const buffer = await storageService.readFile(imagePath);
   const filename = imagePath.split('/').pop();
   const mimeType = filename.endsWith('.png') ? 'image/png' : filename.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
-  return mlClient.generateEmbedding({ buffer, filename, mimeType });
+  const result = await mlClient.generateEmbedding({ buffer, filename, mimeType });
+  return { ...result, buffer, filename };
 };
 
 // Atomically move a request out of "pending".
@@ -83,7 +85,12 @@ const approve = async (id, user, note) => {
   try {
     generated = await embedImage(request.imagePath);
   } catch (error) {
-    throw new AppError('Could not read a face from that photo. Ask the student to upload a clearer one.', 422, {
+    // Say what actually went wrong instead of blaming the photo for every failure.
+    if (error.code === 'FILE_MISSING') {
+      throw new AppError('The uploaded photo is missing from storage. Ask the student to submit a new request.', 409, { code: 'REQUEST_PHOTO_MISSING' });
+    }
+    if (error.statusCode >= 500) throw error;
+    throw new AppError(`Could not read a face from that photo: ${error.message}. Ask the student to upload a clearer one.`, 422, {
       code: 'FACE_EMBEDDING_FAILED'
     });
   }
@@ -106,9 +113,7 @@ const approve = async (id, user, note) => {
   try {
     student = existing;
     if (student) {
-      // Already on some roster: move them into this course's cohort.
-      student.semester = course.semester;
-      student.section = course.section;
+      // Already a known student: add this course. Their semester/section belong to their own record and are left alone.
       student.department = request.department || student.department;
       student.name = request.name || student.name;
       student.active = true;
@@ -126,6 +131,22 @@ const approve = async (id, user, note) => {
         embeddingModel: embeddingModel || null,
         hasFaceEmbedding: true
       });
+    }
+    await courseEnrollmentService.enroll(course._id, student._id, 'request');
+    // The approved enrollment photo becomes the registered photograph (GridFS), unless the student already has one.
+    const hasPhoto = await Student.exists({ _id: student._id, $or: [{ registeredImageFileId: { $ne: null } }, { registeredImage: { $nin: [null, ''] } }] });
+    if (!hasPhoto) {
+      try {
+        await studentService.attachRegisteredPhoto(student, {
+          buffer: generated.buffer,
+          filename: generated.filename,
+          source: 'enrollment-request',
+          embedding: { vector: embedding, model: embeddingModel }
+        });
+      } catch (error) {
+        // The student is already approved and has a valid embedding; an admin can attach the photo later via the face upload.
+        console.error(`Could not store the registered photograph for ${student.studentId}: ${error.message}`);
+      }
     }
     await User.updateOne({ _id: request.userId }, { $set: { studentId: String(student._id) } });
   } catch (error) {

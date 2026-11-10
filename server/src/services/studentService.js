@@ -6,7 +6,13 @@ const AttendanceSession = require('../models/AttendanceSession');
 const User = require('../models/User');
 const AppError = require('../utils/AppError');
 const mlClient = require('./mlClient');
+const fs = require('fs');
 const storageService = require('./storageService');
+const registeredFaceStore = require('./registeredFaceStore');
+const { detectImageType } = require('../utils/fileSignature');
+const env = require('../config/env');
+const CourseEnrollment = require('../models/CourseEnrollment');
+const courseEnrollmentService = require('./courseEnrollmentService');
 const auditService = require('./auditService');
 const { isObjectId } = require('../utils/objectId');
 const { skipFor, toPagination } = require('../utils/pagination');
@@ -30,29 +36,41 @@ const assertCanView = async (user, student) => {
   ) {
     return;
   }
-  if (user.role === ROLES.PROFESSOR) {
-    const teaches = await Course.exists({
-      professorId: user._id,
-      semester: student.semester,
-      section: student.section
-    });
-    if (teaches) return;
-  }
+  // A professor sees only students enrolled in a course they teach.
+  if (user.role === ROLES.PROFESSOR && (await courseEnrollmentService.professorTeachesStudent(user, student._id))) return;
   throw new AppError('You are not authorized to view this student', 403, { code: 'FORBIDDEN' });
 };
 
-const professorScope = async (user) => {
-  const courses = await Course.find({ professorId: user._id }).select('semester section').lean();
-  return courses.map((course) => ({ semester: course.semester, section: course.section }));
+// Show which of the visible courses each student is in, so the client can label rows by course code.
+const attachCourses = async (students, courseScope) => {
+  if (students.length === 0) return [];
+  const filter = { studentId: { $in: students.map((student) => student._id) }, active: true };
+  if (courseScope) filter.courseId = { $in: courseScope };
+  const rows = await CourseEnrollment.find(filter).populate('courseId', 'courseCode courseName section').lean();
+  const byStudent = new Map();
+  for (const row of rows) {
+    if (!row.courseId) continue;
+    const key = String(row.studentId);
+    if (!byStudent.has(key)) byStudent.set(key, []);
+    byStudent.get(key).push({
+      id: row.courseId._id,
+      courseCode: row.courseId.courseCode,
+      courseName: row.courseId.courseName,
+      section: row.courseId.section ?? null
+    });
+  }
+  return students.map((student) => ({ ...student.toJSON(), courses: byStudent.get(String(student._id)) || [] }));
 };
 
 const list = async (user, query) => {
   const conditions = [];
 
-  if (user.role === ROLES.PROFESSOR) {
-    const scope = await professorScope(user);
-    if (scope.length === 0) return { students: [], pagination: toPagination(query, 0) };
-    conditions.push({ $or: scope });
+  // Course enrollment decides visibility: a professor sees only students enrolled in the course(s) they teach.
+  const courseScope = await courseEnrollmentService.resolveCourseScope(user, query);
+  if (courseScope) {
+    const visibleIds = await courseEnrollmentService.studentIdsInCourses(courseScope);
+    if (visibleIds.length === 0) return { students: [], pagination: toPagination(query, 0) };
+    conditions.push({ _id: { $in: visibleIds } });
   }
   if (query.semester !== undefined) conditions.push({ semester: query.semester });
   if (query.section) conditions.push({ section: query.section });
@@ -68,7 +86,8 @@ const list = async (user, query) => {
     Student.find(filter).sort({ rollNumber: 1 }).skip(skipFor(query)).limit(query.limit),
     Student.countDocuments(filter)
   ]);
-  return { students, pagination: toPagination(query, total) };
+  const visible = await attachCourses(students, courseScope);
+  return { students: visible, pagination: toPagination(query, total) };
 };
 
 const getOne = async (user, ref) => {
@@ -109,10 +128,10 @@ const remove = async (ref) => {
   const recordService = require('./recordService');
   const student = await getByRef(ref);
 
-  const cohort = await Course.find({ semester: student.semester, section: student.section }).select('_id').lean();
-  if (cohort.length) {
+  const enrolledCourseIds = await courseEnrollmentService.courseIdsForStudent(student._id);
+  if (enrolledCourseIds.length) {
     const busy = await AttendanceSession.exists({
-      courseId: { $in: cohort.map((course) => course._id) },
+      courseId: { $in: enrolledCourseIds },
       status: SESSION_STATUS.PROCESSING
     });
     if (busy) {
@@ -139,6 +158,8 @@ const remove = async (ref) => {
   );
 
   const photoPaths = [student.registeredImage];
+  const gridFsPhotoIds = [student.registeredImageFileId, ...(student.registeredFaceImages || []).map((entry) => entry.fileId)].filter(Boolean);
+  const thumbnailId = student.faceThumbnailFileId;
   const linkedUsers = await User.find({ studentId: String(student._id) }).select('_id').lean();
   if (linkedUsers.length) {
     const userIds = linkedUsers.map((user) => user._id);
@@ -158,67 +179,131 @@ const remove = async (ref) => {
     }
   }
 
+  await CourseEnrollment.deleteMany({ studentId: student._id });
   await Student.deleteOne({ _id: student._id });
-  await Promise.allSettled(ownedFilePaths(photoPaths).map((relativePath) => storageService.removeStored(relativePath)));
+  await Promise.allSettled([
+    ...ownedFilePaths(photoPaths).map((relativePath) => storageService.removeStored(relativePath)),
+    // A deleted student keeps no data: every GridFS photo goes too (de-duplicated, the current one is also in the history).
+    ...[...new Set(gridFsPhotoIds.map(String))].map((id) => registeredFaceStore.remove(id)),
+    registeredFaceStore.thumbnails.remove(thumbnailId)
+  ]);
 
   return { deleted: true, id: String(student._id), studentId: student.studentId, recordsRemoved };
+};
+
+const MAX_PHOTO_HISTORY = 3;
+const mimeFromName = (name) => {
+  const lower = String(name || '').toLowerCase();
+  return lower.endsWith('.png') ? 'image/png' : lower.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+};
+
+// The student's registered photograph: GridFS first, then the legacy filesystem path (not yet migrated). Never any other source.
+const readRegisteredPhoto = async (student) => {
+  if (student.registeredImageFileId) {
+    const file = await registeredFaceStore.getFile(student.registeredImageFileId);
+    return { buffer: file.buffer, filename: file.filename, mimeType: file.mimeType, from: 'gridfs' };
+  }
+  if (student.registeredImage) {
+    const buffer = await storageService.readFile(student.registeredImage);
+    const filename = student.registeredImage.split('/').pop();
+    return { buffer, filename, mimeType: mimeFromName(filename), from: 'legacy' };
+  }
+  throw new AppError('Register a face image before generating an embedding', 409, { code: 'NO_REGISTERED_IMAGE' });
+};
+
+// Store a new registered photograph in GridFS and point the student at it. The previous photo is only deleted AFTER the new one is
+// stored, verified and referenced. `embedding` (when given) replaces every stored reference vector: they were produced from the old
+// photo (or from classroom crops of an unverified identity), so they must not survive as if they described the new one.
+const attachRegisteredPhoto = async (student, { buffer, filename, source, embedding = null }) => {
+  const stored = await registeredFaceStore.store({ buffer, filename, studentId: student.studentId, source });
+  const current = await Student.findById(student._id).select('registeredImageFileId registeredFaceImages registeredImage').lean();
+  const history = [...((current && current.registeredFaceImages) || []), {
+    fileId: stored.fileId, filename: stored.filename, mimeType: stored.mimeType, size: stored.size, source, uploadedAt: new Date()
+  }];
+  const kept = history.slice(-MAX_PHOTO_HISTORY);
+  const evicted = history.slice(0, history.length - kept.length);
+
+  const $set = { registeredImageFileId: stored.fileId, registeredFaceImages: kept };
+  if (embedding) {
+    $set.faceEmbeddings = [embedding.vector];
+    $set.embeddingModel = embedding.model;
+    $set.hasFaceEmbedding = true;
+  } else {
+    $set.faceEmbeddings = [];
+    $set.embeddingModel = null;
+    $set.hasFaceEmbedding = false;
+  }
+  let result;
+  try {
+    // Optimistic guard: only apply if nobody replaced the photo meanwhile.
+    result = await Student.updateOne(
+      { _id: student._id, registeredImageFileId: (current && current.registeredImageFileId) || null },
+      { $set }
+    );
+  } catch (error) {
+    await registeredFaceStore.remove(stored.fileId).catch(() => {});
+    throw error;
+  }
+  if (result.matchedCount === 0) {
+    await registeredFaceStore.remove(stored.fileId).catch(() => {});
+    throw new AppError('The registered photo was changed by someone else; try again', 409, { code: 'PHOTO_CONFLICT' });
+  }
+  await Promise.allSettled(evicted.map((entry) => registeredFaceStore.remove(entry.fileId)));
+  return stored;
 };
 
 const registerFace = async (ref, files) => {
   if (!files || files.length !== 1) {
     throw new AppError('Exactly one image is required in the "image" field', 400, { code: 'INVALID_UPLOAD' });
   }
-  const student = await getByRef(ref);
-  const [stored] = await storageService.commitUploads(files, 'registered-faces', `${student._id}-`);
-  const previous = student.registeredImage;
-
-  let updated;
+  const [file] = files;
   try {
-    await Student.updateOne(
-      { _id: student._id },
-      { $set: { registeredImage: stored.relativePath, faceEmbeddings: [], embeddingModel: null, hasFaceEmbedding: false } }
-    );
-    updated = await Student.findById(student._id);
-  } catch (error) {
-    await storageService.removeFiles([stored.absolutePath]);
-    throw error;
+    const student = await getByRef(ref);
+    const buffer = await fs.promises.readFile(file.path);
+    if (!detectImageType(buffer)) throw new AppError(`"${file.originalname}" is not a valid JPEG, PNG or WebP image`, 400, { code: 'INVALID_FILE_TYPE' });
+
+    // The ML service must find exactly one usable face BEFORE anything is replaced, so a bad upload can never overwrite a good photo.
+    const embedded = await mlClient.generateEmbedding({ buffer, filename: file.originalname, mimeType: detectImageType(buffer) });
+    await attachRegisteredPhoto(student, {
+      buffer,
+      filename: file.originalname,
+      source: 'admin-upload',
+      embedding: { vector: embedded.embedding, model: embedded.embeddingModel }
+    });
+    // The superseded filesystem copy (if any) is no longer referenced; the GridFS file is now the source of truth.
+    if (student.registeredImage) {
+      await Student.updateOne({ _id: student._id }, { $set: { registeredImage: null } });
+      await storageService.removeStored(student.registeredImage).catch((error) => console.error('Could not remove legacy photo', error.message));
+    }
+    return await Student.findById(student._id);
+  } finally {
+    await storageService.removeFiles([file.path]).catch(() => {});
   }
-  await storageService.removeStored(previous);
-  return updated;
 };
 
+// Rebuild the reference vector from the registered photograph (e.g. after an ML model change).
 const generateEmbedding = async (ref) => {
   const student = await getByRef(ref);
-  if (!student.registeredImage) {
-    throw new AppError('Register a face image before generating an embedding', 409, { code: 'NO_REGISTERED_IMAGE' });
-  }
-  const buffer = await storageService.readFile(student.registeredImage);
-  const filename = student.registeredImage.split('/').pop();
-  const mimeType = filename.endsWith('.png') ? 'image/png' : filename.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
-  const result = await mlClient.generateEmbedding({ buffer, filename, mimeType });
+  const photo = await readRegisteredPhoto(student);
+  const result = await mlClient.generateEmbedding({ buffer: photo.buffer, filename: photo.filename, mimeType: photo.mimeType });
 
   await Student.updateOne(
     { _id: student._id },
-    { $set: { faceEmbeddings: [result.embedding], embeddingModel: result.embeddingModel || null, hasFaceEmbedding: true } }
+    { $set: { faceEmbeddings: [result.embedding], embeddingModel: result.embeddingModel, hasFaceEmbedding: true } }
   );
   const updated = await Student.findById(student._id);
   return { student: updated, embeddingSize: result.embedding.length, faceQuality: result.faceQuality ?? null };
 };
 
-const listEnrolledForCourse = (course) =>
-  Student.find({ semester: course.semester, section: course.section, active: true })
-    .select('+faceEmbeddings')
-    .sort({ rollNumber: 1 })
-    .lean();
+// The roster is the students enrolled in this course, whatever their semester, section or department.
+const listEnrolledForCourse = (course) => courseEnrollmentService.listRoster(course, { withEmbeddings: true });
 
-// Is this roll number already on the roster for this course?
-const findInCourse = async (rollNumber, course) =>
-  Student.findOne({
-    rollNumber,
-    semester: course.semester,
-    section: course.section,
-    active: true
-  });
+// Is this roll number already enrolled in this course?
+const findInCourse = async (rollNumber, course) => {
+  const student = await Student.findOne({ rollNumber, active: true });
+  if (!student) return null;
+  return (await courseEnrollmentService.isEnrolled(course._id, student._id)) ? student : null;
+};
 
 const assertCourseExists = async (courseId) => {
   const course = await Course.findById(courseId);
@@ -425,7 +510,7 @@ const getAttendance = async (user) => {
   };
 };
 
-const { MAX_REFERENCE_EMBEDDINGS, nextReferences } = require('../utils/referenceEmbeddings');
+const { MAX_REFERENCE_EMBEDDINGS, nextReferences, decideAssignmentEmbedding } = require('../utils/referenceEmbeddings');
 
 // Append a reference vector to a student.
 const appendEmbedding = async (student, embedding, model) => {
@@ -451,7 +536,30 @@ const appendEmbedding = async (student, embedding, model) => {
   return student;
 };
 
-// Persist a small face thumbnail for each just-enrolled student, cropped from the classroom photo the face was detected in.
+// A professor's face assignment may add that classroom face to the student's reference vectors, but only under the rules in
+// decideAssignmentEmbedding (bootstrap, or explicit opt-in plus an ML-suggested match above the similarity floor).
+const appendAssignmentEmbedding = async (student, face, model) => {
+  const current = await Student.findById(student._id)
+    .select('+faceEmbeddings embeddingModel registeredImage registeredImageFileId')
+    .lean();
+  const decision = decideAssignmentEmbedding({
+    student: {
+      embeddingModel: current && current.embeddingModel,
+      faceEmbeddings: (current && current.faceEmbeddings) || [],
+      hasRegisteredPhoto: Boolean(current && (current.registeredImageFileId || current.registeredImage))
+    },
+    face: { studentId: face.studentId ?? null, similarity: face.similarity ?? null },
+    assignedStudentId: student.studentId,
+    sessionModel: model,
+    optIn: env.assignAppendsEmbedding,
+    minSimilarity: env.assignAppendMinSimilarity
+  });
+  if (decision.action === 'append') await appendEmbedding(student, face.embedding, model);
+  return decision;
+};
+
+// A small face thumbnail for a just-enrolled student who has NO registered photograph. It lives in its own GridFS bucket and never
+// replaces or deletes a registered photograph: a classroom crop is not an original registered portrait.
 const storeFaceThumbnails = async (session, entries) => {
   if (!entries || entries.length === 0) return;
   const imageById = new Map((session.uploadedImages || []).map((image) => [String(image._id), image]));
@@ -459,6 +567,8 @@ const storeFaceThumbnails = async (session, entries) => {
   for (const entry of entries) {
     const image = imageById.get(String(entry.face.imageId));
     if (!image || !Array.isArray(entry.face.bbox) || entry.face.bbox.length !== 4) continue;
+    const current = await Student.findById(entry.student._id).select('registeredImage registeredImageFileId faceThumbnailFileId').lean();
+    if (!current || current.registeredImage || current.registeredImageFileId || current.faceThumbnailFileId) continue;
     const key = String(image._id);
     if (!groups.has(key)) groups.set(key, { image, entries: [] });
     groups.get(key).entries.push(entry);
@@ -473,12 +583,7 @@ const storeFaceThumbnails = async (session, entries) => {
     }
     let crops;
     try {
-      crops = await mlClient.cropFaces({
-        buffer,
-        filename: image.filename,
-        mimeType: image.mimeType,
-        boxes: group.map((entry) => entry.face.bbox)
-      });
+      crops = await mlClient.cropFaces({ buffer, filename: image.filename, mimeType: image.mimeType, boxes: group.map((entry) => entry.face.bbox) });
     } catch {
       continue;
     }
@@ -487,18 +592,15 @@ const storeFaceThumbnails = async (session, entries) => {
       if (!encoded) continue;
       const { student } = group[index];
       try {
-        const stored = await storageService.writeBuffer(
-          Buffer.from(encoded, 'base64'),
-          'registered-faces',
-          `${student._id}-`
-        );
-        const previous = student.registeredImage;
-        await Student.updateOne({ _id: student._id }, { $set: { registeredImage: stored.relativePath } });
-        student.registeredImage = stored.relativePath;
-        // Only ever delete a thumbnail we wrote — never a profile/request photo.
-        if (previous && previous !== stored.relativePath && previous.startsWith('registered-faces/')) {
-          await storageService.removeStored(previous);
-        }
+        const stored = await registeredFaceStore.thumbnails.store({
+          buffer: Buffer.from(encoded, 'base64'),
+          filename: `${student._id}-thumb.jpg`,
+          studentId: student.studentId,
+          source: 'classroom-crop'
+        });
+        // Only set it if still empty, so two concurrent assignments cannot orphan a file.
+        const result = await Student.updateOne({ _id: student._id, faceThumbnailFileId: null }, { $set: { faceThumbnailFileId: stored.fileId } });
+        if (result.matchedCount === 0) await registeredFaceStore.thumbnails.remove(stored.fileId);
       } catch {
         // Thumbnail is a convenience; the student stays enrolled without one.
       }
@@ -518,6 +620,9 @@ module.exports = {
   generateEmbedding,
   listEnrolledForCourse,
   appendEmbedding,
+  appendAssignmentEmbedding,
+  attachRegisteredPhoto,
+  readRegisteredPhoto,
   storeFaceThumbnails,
   buildProfile,
   getProfile,

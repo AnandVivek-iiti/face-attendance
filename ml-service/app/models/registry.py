@@ -1,10 +1,13 @@
 import logging
+import threading
+from contextlib import contextmanager
 
 import numpy as np
 import onnxruntime
 from insightface.app import FaceAnalysis
 
 from app.config import Settings
+from app.errors import AppError
 from app.models.face_detector import FaceDetector
 from app.models.face_recognizer import FaceRecognizer
 
@@ -47,12 +50,24 @@ class ModelRegistry:
             providers, use_cuda = ["CPUExecutionProvider"], False
             analysis = load_face_analysis(settings, providers, use_cuda)
         self.model_name = settings.insightface_model
+        self._gate = threading.BoundedSemaphore(settings.max_concurrent_inferences)
+        self._queue_timeout = settings.inference_queue_timeout
         self.detector = FaceDetector(analysis.det_model, settings.detection_size, settings.detection_min_size)
         self.recognizer = FaceRecognizer(analysis.models["recognition"])
         self.active_providers = list(analysis.det_model.session.get_providers())
         logger.info("models loaded: %s providers=%s", self.model_name, self.active_providers)
         if settings.warmup:
             self._warm_up()
+
+    @contextmanager
+    def inference_slot(self):
+        """One shared limit for every request that decodes images or runs a network (analysis and enrolment)."""
+        if not self._gate.acquire(timeout=self._queue_timeout):
+            raise AppError("ML_BUSY", "The recognition service is busy. Try again shortly.", 503)
+        try:
+            yield
+        finally:
+            self._gate.release()
 
     def _warm_up(self) -> None:
         """Run each network once so the first real request does not pay for

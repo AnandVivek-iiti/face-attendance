@@ -8,7 +8,7 @@ from app.models.registry import ModelRegistry
 from app.services.detection import DetectionService
 from app.services.quality_check import assess_face, assess_image
 from app.services.recognition import RecognitionService
-from app.utils.image_utils import pad_border
+from app.utils.image_utils import decode_image, pad_border
 
 PAD_RATIO = 0.5
 
@@ -27,13 +27,23 @@ class ReferenceService:
     def __init__(self, registry: ModelRegistry, settings: Settings):
         self._settings = settings
         self._model_name = registry.model_name
+        self._registry = registry
         self._detection = DetectionService(registry.detector)
         self._recognition = RecognitionService(registry.recognizer, settings)
 
     def generate(self, image: np.ndarray) -> ReferenceEmbedding:
+        with self._registry.inference_slot():
+            return self._generate(image)
+
+    def generate_from_bytes(self, data: bytes) -> ReferenceEmbedding:
+        """Decode inside the inference slot so concurrent uploads cannot all hold decoded pixels at once."""
+        with self._registry.inference_slot():
+            return self._generate(decode_image(data, self._settings.max_image_pixels))
+
+    def _generate(self, image: np.ndarray) -> ReferenceEmbedding:
         settings = self._settings
         image_quality = assess_image(image, settings)
-        if image_quality.status == "unusable" and image_quality.reason != "blur":
+        if image_quality.status == "unusable":
             raise AppError("IMAGE_UNUSABLE", image_quality.message, 422)
 
         faces = self._confident(self._detection.detect(image))
@@ -56,6 +66,8 @@ class ReferenceService:
         self._validate_reference_quality(quality)
 
         embedding = self._recognition.embed([aligned])[0]
+        if embedding.shape[0] != self._registry.recognizer.embedding_dim or not np.isfinite(embedding).all():
+            raise AppError("EMBEDDING_FAILED", "The model produced an invalid embedding for this image.", 500)
         height, width = working.shape[:2]
         bbox = [int(max(0, v)) for v in face.bbox]
         bbox[2], bbox[3] = min(bbox[2], width), min(bbox[3], height)

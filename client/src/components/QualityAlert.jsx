@@ -30,6 +30,11 @@ export default function QualityAlert({ quality, photoLabel, onUploadNew, compact
               {quality.brightnessScore !== null && `Brightness ${quality.brightnessScore}.`}
             </p>
           )}
+          {quality.issues?.length > 0 && (
+            <p className="mt-1 text-xs text-muted">
+              Checks: {quality.issues.map((issue) => String(issue).replaceAll('_', ' ')).join(' · ')}
+            </p>
+          )}
           {unusable && (
             <p className="mt-1 text-xs text-ink">Attendance is not marked from this image.</p>
           )}
