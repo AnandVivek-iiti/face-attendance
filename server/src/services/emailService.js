@@ -1,8 +1,36 @@
 const nodemailer = require('nodemailer');
 const env = require('../config/env');
 
-// Tried in order; the first one that succeeds wins. SMTP (nodemailer) is the default.
-const PROVIDERS = ['smtp', 'resend', 'sendgrid', 'brevo'];
+// Tried in order; the first one that succeeds wins. HTTP mail APIs go first: they answer in well under a second and work on hosts
+// that block outbound SMTP (e.g. Render), where an SMTP attempt would otherwise hang until it times out. SMTP is the last resort.
+const PROVIDERS = ['resend', 'sendgrid', 'brevo', 'smtp'];
+
+// Hard ceiling for a single provider attempt. Without it a blocked SMTP port can stall the request for minutes.
+const parsedTimeout = Number.parseInt(process.env.EMAIL_TIMEOUT_MS, 10);
+const SEND_TIMEOUT_MS = parsedTimeout > 0 ? parsedTimeout : 8000;
+// After a provider fails at the connection/credential level, skip it for a while so later emails are not slowed down again.
+const COOLDOWN_MS = 2 * 60 * 1000;
+const cooldownUntil = {};
+
+const OUTAGE_CODES = new Set(['ETIMEDOUT', 'ETIMEOUT', 'ECONNECTION', 'ESOCKET', 'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EDNS', 'EAUTH']);
+const isProviderOutage = (error) => {
+  if (!error) return false;
+  if (OUTAGE_CODES.has(error.code)) return true;
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') return true;
+  return error.status === 401 || error.status === 403 || error.status >= 500;
+};
+
+const withTimeout = (promise, ms, label) => {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`${label} timed out after ${ms}ms`);
+      error.code = 'ETIMEDOUT';
+      reject(error);
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+};
 
 const ready = (provider) => {
   if (provider === 'smtp') return Boolean(env.smtpHost && env.mailFrom);
@@ -24,7 +52,11 @@ const getTransporter = () => {
       host: env.smtpHost,
       port: env.smtpPort,
       secure: env.smtpSecure,
-      auth: env.smtpUser ? { user: env.smtpUser, pass: env.smtpPass } : undefined
+      auth: env.smtpUser ? { user: env.smtpUser, pass: env.smtpPass } : undefined,
+      connectionTimeout: SEND_TIMEOUT_MS,
+      greetingTimeout: SEND_TIMEOUT_MS,
+      socketTimeout: SEND_TIMEOUT_MS,
+      dnsTimeout: SEND_TIMEOUT_MS
     });
   }
   return transporter;
@@ -37,10 +69,17 @@ const parseFrom = (value) => {
 };
 
 const postJson = async (url, headers, body) => {
-  const response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(SEND_TIMEOUT_MS)
+  });
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
-    throw new Error(`${response.status} ${detail.slice(0, 200)}`);
+    const error = new Error(`${response.status} ${detail.slice(0, 200)}`);
+    error.status = response.status;
+    throw error;
   }
 };
 
@@ -101,7 +140,7 @@ const wrap = (title, inner) =>
 
 const sendViaProvider = async (provider, message) => {
   if (provider === 'smtp') {
-    await getTransporter().sendMail({ from: env.mailFrom, ...message });
+    await withTimeout(getTransporter().sendMail({ from: env.mailFrom, ...message }), SEND_TIMEOUT_MS * 2, 'SMTP send');
     return;
   }
   await sendHttp(provider, message);
@@ -113,11 +152,16 @@ const send = async (message) => {
     console.warn(`[email] No email provider configured; "${message.subject}" for ${message.to} was not sent.`);
     return false;
   }
-  for (const provider of chain) {
+  // Skip providers that just failed hard; if every one is cooling down, try them all rather than send nothing.
+  const now = Date.now();
+  const available = chain.filter((provider) => (cooldownUntil[provider] || 0) <= now);
+  for (const provider of available.length > 0 ? available : chain) {
     try {
       await sendViaProvider(provider, message);
+      cooldownUntil[provider] = 0;
       return true;
     } catch (error) {
+      if (isProviderOutage(error)) cooldownUntil[provider] = Date.now() + COOLDOWN_MS;
       console.error(`[email] ${provider} failed for "${message.subject}" to ${message.to}: ${error.message}`);
     }
   }
